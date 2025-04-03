@@ -1,0 +1,36 @@
+
+<mujoco model="satellites">
+  <compiler angle="degree"/>
+  <option timestep="0.001" gravity="0 0 0"/>
+  
+  <default>
+    <geom contype="1" conaffinity="1" density="1000" friction="0.5 0.005 0.0001"/>
+  </default>
+  
+  <worldbody>
+    <light diffuse=".5 .5 .5" pos="0 0 3" dir="0 0 -1"/>
+    <camera pos="5 0 2" xyaxes="-1 0 0 0 0 1"/>
+    
+    <!-- Servicing Satellite -->
+    <body name="servicer" pos="0 0 0">
+      <joint name="servicer_free" type="free"/>
+      <!-- Main body -->
+      <geom name="servicer_body" type="box" size=".5 .5 .5" rgba="0.7 0.7 0.7 1"/>
+      <!-- Docking port (protrusion) -->
+      <geom name="servicer_port" type="cylinder" pos="0 0 0.5" size="0.1 0.2" rgba="1 0 0 1"/>
+      <!-- Docking site (for reference) -->
+      <site name="servicer_dock_site" pos="0 0 0.5" size="0.15" rgba="0 1 0 1"/>
+    </body>
+    
+    <!-- Target Satellite -->
+    <body name="target" pos="3 0 0">
+      <joint name="target_free" type="free"/>
+      <!-- Main body -->
+      <geom name="target_body" type="box" size=".5 .5 .5" rgba="0.7 0.7 0.7 1"/>
+      <!-- Docking cavity (receptacle) -->
+      <geom name="target_cavity" type="cylinder" pos="0 0 -0.5" size="0.15 0.25" rgba="0 0 1 1"/>
+      <!-- Docking site (for reference) -->
+      <site name="target_dock_site" pos="0 0 -0.5" size="0.15" rgba="0 1 0 1"/>
+    </body>
+  </worldbody>
+</mujoco>
