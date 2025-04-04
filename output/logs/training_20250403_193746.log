@@ -1,0 +1,16 @@
+2025-04-03 19:37:46,523 [INFO] Initializing Ray...
+2025-04-03 19:37:50,719 [INFO] Creating temporary environment to get action/observation spaces...
+2025-04-03 19:37:50,721 [INFO] Spaces retrieved.
+2025-04-03 19:37:50,721 [INFO] Configuring RLlib PPO Algorithm...
+2025-04-03 19:37:50,722 [INFO] Building Algorithm...
+2025-04-03 19:38:03,513 [WARNING] Could not retrieve policy class name.
+2025-04-03 19:38:03,513 [INFO] Algorithm Built. Using Policy Class: Unavailable (New API stack?)
+2025-04-03 19:38:03,513 [INFO] 
+--- Starting Training for 100 iterations ---
+2025-04-03 19:38:19,576 [WARNING] Training interrupted by user.
+2025-04-03 19:38:19,577 [INFO] 
+--- Training Finished ---
+2025-04-03 19:38:19,577 [INFO] Total Training Time: 16.06 seconds
+2025-04-03 19:38:19,578 [ERROR] Could not save final checkpoint: URI has empty scheme: 'output/ray_results'
+2025-04-03 19:38:19,579 [WARNING] No valid checkpoint or algorithm instance found, skipping evaluation video.
+2025-04-03 19:38:19,579 [INFO] Shutting down Ray...
