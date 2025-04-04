@@ -1,0 +1,24 @@
+# Core Simulation and RL Environment Libraries
+numpy>=1.21         # Fundamental package for numerical computing
+gymnasium>=0.28     # Core API for RL environments (PettingZoo dependency)
+pettingzoo>=1.24    # Framework for Multi-Agent Reinforcement Learning environments
+mujoco>=3.0         # Physics simulator
+
+# MARL Training Library (Ray RLlib) and Backend
+ray[rllib]>=2.7     # Ray core and RLlib for distributed/multi-agent training
+torch>=2.0          # Deep Learning framework (chosen backend for RLlib)
+# Note: Alternatively, you could use TensorFlow (e.g., tensorflow>=2.10)
+# and set .framework("tf2") in the RLlib config. Install only one.
+
+# Stable Baselines (Alternative RL Framework)
+stable-baselines3>=2.0.0  # For RL algorithm implementations
+
+# Utilities
+imageio>=2.25.0     # For reading/writing image data (used for video saving)
+imageio-ffmpeg      # Backend for imageio to save MP4 videos
+mediapy>=1.1.0      # Optional: For simple real-time rendering display during 'human' mode
+scipy>=1.7.0        # Scientific computing library
+matplotlib>=3.5.0   # Plotting and visualization
+
+# Optional: For monitoring training progress
+tensorboard>=2.10   # For visualizing training metrics logged by RLlib
