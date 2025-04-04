@@ -240,8 +240,8 @@ if __name__ == "__main__":
                 observation_filter="MeanStdFilter",
             )
             .training(
-                gamma=0.99,
-                lr=5e-5,
+                gamma=0.96,
+                lr=1e-5,
                 kl_coeff=0.2,
                 clip_param=0.2,
                 # --- FIX: Try reducing vf_clip_param ---
@@ -304,8 +304,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logger.info(f"\n--- Starting Training for {TRAIN_ITERATIONS} iterations ---")
-    # (Keep training loop, checkpointing, final save, evaluation call, and cleanup the same)
-    # ... [ Rest of the training loop and cleanup code as in previous correct version ] ...
     results = []
     start_time = time.time()
     checkpoint_path = None
