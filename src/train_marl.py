@@ -23,7 +23,7 @@ from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 100 # Increase this later if learning starts
+TRAIN_ITERATIONS = 2500 # Increase this later if learning starts
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
@@ -369,10 +369,10 @@ if __name__ == "__main__":
                 num_cpus_per_env_runner=1,
             )
             .training(
-                gamma=0.96,
+                gamma=0.99,
                 # --- Try reducing LR and VF clipping ---
                 lr=1e-4,        # Reduced learning rate
-                vf_clip_param=10.0, # Significantly reduced VF clipping
+                vf_clip_param=20.0, # Significantly reduced VF clipping
                 # ---
                 kl_coeff=0.2,
                 clip_param=0.2,
@@ -391,11 +391,11 @@ if __name__ == "__main__":
                 policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
             )
             .resources(
-                num_gpus=0,
+                num_gpus=1,
                 )
             .debugging(
                 log_level="INFO",
-                seed=42
+                seed=369
                 )
             .fault_tolerance(
                  restart_failed_env_runners=True
@@ -408,7 +408,8 @@ if __name__ == "__main__":
                 evaluation_parallel_to_training=True,
                 evaluation_config = PPOConfig.overrides(
                      explore=False,
-                     observation_filter="MeanStdFilter",
+                     #observation_filter="MeanStdFilter",
+                     observation_filter="NoFilter",
                      num_cpus_per_env_runner=1
                 )
             )
