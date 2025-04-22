@@ -1,0 +1,72 @@
+2025-04-22 14:56:14,304 [__main__] [INFO] Logging setup complete. Log file: output/logs/training_20250422_145614.log
+2025-04-22 14:56:14,305 [__main__] [INFO] Registered RLlib environment 'satellite_marl'
+2025-04-22 14:56:14,305 [__main__] [INFO] --- Starting MARL Training Script ---
+2025-04-22 14:56:14,305 [__main__] [INFO] Environment Config: src.config
+2025-04-22 14:56:14,305 [__main__] [INFO] RLlib PPO Algorithm
+2025-04-22 14:56:14,305 [__main__] [INFO] Training Iterations: 100
+2025-04-22 14:56:14,305 [__main__] [INFO] Results Directory: output/ray_results
+2025-04-22 14:56:14,305 [__main__] [INFO] Detected 16 CPUs.
+2025-04-22 14:56:14,411 [filelock] [DEBUG] Attempting to acquire lock 5823426256 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/node_ip_address.json.lock
+2025-04-22 14:56:14,412 [filelock] [DEBUG] Lock 5823426256 acquired on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/node_ip_address.json.lock
+2025-04-22 14:56:14,413 [filelock] [DEBUG] Attempting to release lock 5823426256 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/node_ip_address.json.lock
+2025-04-22 14:56:14,413 [filelock] [DEBUG] Lock 5823426256 released on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/node_ip_address.json.lock
+2025-04-22 14:56:14,414 [filelock] [DEBUG] Attempting to acquire lock 5368015248 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,415 [filelock] [DEBUG] Lock 5368015248 acquired on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,416 [filelock] [DEBUG] Attempting to release lock 5368015248 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,416 [filelock] [DEBUG] Lock 5368015248 released on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,416 [filelock] [DEBUG] Attempting to acquire lock 5823425232 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,416 [filelock] [DEBUG] Lock 5823425232 acquired on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,417 [filelock] [DEBUG] Attempting to release lock 5823425232 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,418 [filelock] [DEBUG] Lock 5823425232 released on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,418 [filelock] [DEBUG] Attempting to acquire lock 5821723024 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,418 [filelock] [DEBUG] Lock 5821723024 acquired on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,419 [filelock] [DEBUG] Attempting to release lock 5821723024 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,419 [filelock] [DEBUG] Lock 5821723024 released on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,420 [filelock] [DEBUG] Attempting to acquire lock 5364715728 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,420 [filelock] [DEBUG] Lock 5364715728 acquired on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,421 [filelock] [DEBUG] Attempting to release lock 5364715728 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,421 [filelock] [DEBUG] Lock 5364715728 released on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,421 [filelock] [DEBUG] Attempting to acquire lock 5823425232 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,421 [filelock] [DEBUG] Lock 5823425232 acquired on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,422 [filelock] [DEBUG] Attempting to release lock 5823425232 on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:14,422 [filelock] [DEBUG] Lock 5823425232 released on /tmp/ray/session_2025-04-22_14-56-14_410097_73665/ports_by_node.json.lock
+2025-04-22 14:56:17,880 [__main__] [INFO] Ray initialized successfully.
+2025-04-22 14:56:17,880 [__main__] [INFO] Creating temporary environment to get action/observation spaces...
+2025-04-22 14:56:17,881 [__main__] [DEBUG] Creating RllibSatelliteEnv with config: {}
+2025-04-22 14:56:17,888 [src.satellite_marl_env] [INFO] MuJoCo model loaded successfully from /Users/leo/RL-Spacecraft-Docking/src/xml_references/satellites.xml
+2025-04-22 14:56:17,889 [src.satellite_marl_env] [DEBUG] MuJoCo IDs retrieved successfully.
+2025-04-22 14:56:17,890 [src.satellite_marl_env] [INFO] SatelliteMARLEnv closed.
+2025-04-22 14:56:17,890 [__main__] [INFO] Observation/Action spaces retrieved successfully:
+2025-04-22 14:56:17,890 [__main__] [INFO]   Agent 'servicer': Obs=Box(-inf, inf, (13,), float32), Act=Box(-1.0, 1.0, (6,), float32)
+2025-04-22 14:56:17,890 [__main__] [INFO]   Agent 'target': Obs=Box(-inf, inf, (13,), float32), Act=Box(-1.0, 1.0, (6,), float32)
+2025-04-22 14:56:17,890 [__main__] [INFO] Configuring RLlib PPO Algorithm...
+2025-04-22 14:56:17,891 [__main__] [INFO] Absolute results path: /Users/leo/RL-Spacecraft-Docking/output/ray_results
+2025-04-22 14:56:17,891 [__main__] [INFO] Using 14 environment runners (workers).
+2025-04-22 14:56:17,891 [__main__] [INFO] Setting rollout_fragment_length: 200
+2025-04-22 14:56:17,891 [__main__] [INFO] Setting train_batch_size: 4000
+2025-04-22 14:56:17,894 [__main__] [INFO] PPO configuration object created.
+2025-04-22 14:56:17,894 [__main__] [INFO] Building Algorithm...
+2025-04-22 14:56:17,947 [__main__] [ERROR] Failed during RLlib configuration or algorithm build. Exiting.
+Traceback (most recent call last):
+  File "/Users/leo/RL-Spacecraft-Docking/src/train_marl.py", line 496, in <module>
+    algo = config.build()
+           ^^^^^^^^^^^^^^
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/utils/deprecation.py", line 128, in _ctor
+    return obj(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/algorithm_config.py", line 5418, in build
+    return self.build_algo(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/algorithm_config.py", line 958, in build_algo
+    return algo_class(
+           ^^^^^^^^^^^
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/algorithm.py", line 456, in __init__
+    config.validate()
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/ppo/ppo.py", line 292, in validate
+    self.validate_train_batch_size_vs_rollout_fragment_length()
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/algorithm_config.py", line 3993, in validate_train_batch_size_vs_rollout_fragment_length
+    self._value_error(
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/algorithm_config.py", line 4468, in _value_error
+    raise ValueError(msg)
+ValueError: Your desired `total_train_batch_size` (4000=0 learners x 4000) or a value 10% off of that cannot be achieved with your other settings (num_env_runners=14; num_envs_per_env_runner=1; rollout_fragment_length=285)! Try setting `rollout_fragment_length` to 'auto' OR to a value of 285.
+To suppress all validation errors, set `config.experimental(_validate_config=False)` at your own risk.

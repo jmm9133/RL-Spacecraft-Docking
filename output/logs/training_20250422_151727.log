@@ -1,0 +1,141 @@
+2025-04-22 15:17:27,799 [__main__] [INFO] Logging setup complete. Log file: output/logs/training_20250422_151727.log
+2025-04-22 15:17:27,800 [__main__] [INFO] Registered RLlib environment 'satellite_marl'
+2025-04-22 15:17:27,800 [__main__] [INFO] --- Starting MARL Training Script ---
+2025-04-22 15:17:27,800 [__main__] [INFO] Environment Config: src.config
+2025-04-22 15:17:27,801 [__main__] [INFO] RLlib PPO Algorithm
+2025-04-22 15:17:27,801 [__main__] [INFO] Training Iterations: 100
+2025-04-22 15:17:27,801 [__main__] [INFO] Results Directory: output/ray_results
+2025-04-22 15:17:27,801 [__main__] [WARNING] Reminder: Check '/tmp/ray' disk usage. Clean or configure Ray's temp directory if it's over 95% full.
+2025-04-22 15:17:27,801 [__main__] [INFO] Detected 16 CPUs.
+2025-04-22 15:17:27,891 [filelock] [DEBUG] Attempting to acquire lock 5702720528 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/node_ip_address.json.lock
+2025-04-22 15:17:27,892 [filelock] [DEBUG] Lock 5702720528 acquired on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/node_ip_address.json.lock
+2025-04-22 15:17:27,893 [filelock] [DEBUG] Attempting to release lock 5702720528 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/node_ip_address.json.lock
+2025-04-22 15:17:27,893 [filelock] [DEBUG] Lock 5702720528 released on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/node_ip_address.json.lock
+2025-04-22 15:17:27,894 [filelock] [DEBUG] Attempting to acquire lock 5702720720 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,895 [filelock] [DEBUG] Lock 5702720720 acquired on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,896 [filelock] [DEBUG] Attempting to release lock 5702720720 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,896 [filelock] [DEBUG] Lock 5702720720 released on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,897 [filelock] [DEBUG] Attempting to acquire lock 5702721232 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,897 [filelock] [DEBUG] Lock 5702721232 acquired on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,898 [filelock] [DEBUG] Attempting to release lock 5702721232 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,898 [filelock] [DEBUG] Lock 5702721232 released on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,899 [filelock] [DEBUG] Attempting to acquire lock 5702721296 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,899 [filelock] [DEBUG] Lock 5702721296 acquired on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,900 [filelock] [DEBUG] Attempting to release lock 5702721296 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,900 [filelock] [DEBUG] Lock 5702721296 released on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,901 [filelock] [DEBUG] Attempting to acquire lock 5702720720 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,901 [filelock] [DEBUG] Lock 5702720720 acquired on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,902 [filelock] [DEBUG] Attempting to release lock 5702720720 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,902 [filelock] [DEBUG] Lock 5702720720 released on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,902 [filelock] [DEBUG] Attempting to acquire lock 5702721296 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,903 [filelock] [DEBUG] Lock 5702721296 acquired on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,904 [filelock] [DEBUG] Attempting to release lock 5702721296 on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:27,904 [filelock] [DEBUG] Lock 5702721296 released on /tmp/ray/session_2025-04-22_15-17-27_889256_89359/ports_by_node.json.lock
+2025-04-22 15:17:32,704 [__main__] [INFO] Ray initialized successfully.
+2025-04-22 15:17:32,704 [__main__] [INFO] Creating temporary environment to get action/observation spaces...
+2025-04-22 15:17:32,704 [__main__] [DEBUG] Creating RllibSatelliteEnv with config: {}
+2025-04-22 15:17:32,726 [src.satellite_marl_env] [INFO] MuJoCo model loaded successfully from /Users/leo/RL-Spacecraft-Docking/src/xml_references/satellites.xml
+2025-04-22 15:17:32,729 [src.satellite_marl_env] [DEBUG] MuJoCo IDs retrieved successfully.
+2025-04-22 15:17:32,730 [src.satellite_marl_env] [INFO] SatelliteMARLEnv closed.
+2025-04-22 15:17:32,730 [__main__] [INFO] Observation/Action spaces retrieved successfully:
+2025-04-22 15:17:32,730 [__main__] [INFO]   Agent 'servicer': Obs=Box(-inf, inf, (13,), float32), Act=Box(-1.0, 1.0, (6,), float32)
+2025-04-22 15:17:32,730 [__main__] [INFO]   Agent 'target': Obs=Box(-inf, inf, (13,), float32), Act=Box(-1.0, 1.0, (6,), float32)
+2025-04-22 15:17:32,730 [__main__] [INFO] Configuring RLlib PPO Algorithm...
+2025-04-22 15:17:32,731 [__main__] [INFO] Absolute results path: /Users/leo/RL-Spacecraft-Docking/output/ray_results
+2025-04-22 15:17:32,731 [__main__] [INFO] Using 14 environment runners (workers).
+2025-04-22 15:17:32,731 [__main__] [INFO] Setting rollout_fragment_length: 200
+2025-04-22 15:17:32,731 [__main__] [INFO] Setting train_batch_size: 2800 (= num_workers * rollout_fragment_length)
+2025-04-22 15:17:32,733 [__main__] [INFO] PPO configuration object created.
+2025-04-22 15:17:32,733 [__main__] [INFO] Building Algorithm...
+2025-04-22 15:17:45,209 [__main__] [DEBUG] Creating RllibSatelliteEnv with config: {}
+2025-04-22 15:17:45,214 [src.satellite_marl_env] [INFO] MuJoCo model loaded successfully from /Users/leo/RL-Spacecraft-Docking/src/xml_references/satellites.xml
+2025-04-22 15:17:45,216 [src.satellite_marl_env] [DEBUG] MuJoCo IDs retrieved successfully.
+2025-04-22 15:17:45,217 [src.satellite_marl_env] [DEBUG] --- Environment Reset Called ---
+2025-04-22 15:17:45,217 [src.satellite_marl_env] [DEBUG] Resetting with seed: 42
+2025-04-22 15:17:45,217 [src.satellite_marl_env] [DEBUG] MuJoCo data reset.
+2025-04-22 15:17:45,218 [src.satellite_marl_env] [DEBUG] Reset: Initial Servicer qpos[0:7]: [0. 0. 0. 1. 0. 0. 0.]
+2025-04-22 15:17:45,218 [src.satellite_marl_env] [DEBUG] Reset: Initial Target qpos[0:7]: [2.  0.5 0.  1.  0.  0.  0. ]
+2025-04-22 15:17:45,218 [src.satellite_marl_env] [DEBUG] Reset: Initial Servicer qvel[0:6]: [0. 0. 0. 0. 0. 0.]
+2025-04-22 15:17:45,219 [src.satellite_marl_env] [DEBUG] Reset: Initial Target qvel[0:6]: [0. 0. 0. 0. 0. 0.]
+2025-04-22 15:17:45,219 [src.satellite_marl_env] [DEBUG] Initial mj_forward() completed.
+2025-04-22 15:17:45,220 [src.satellite_marl_env] [DEBUG] Reset: Initial Obs 'servicer' (finite: True): [2.  0.5 0.  0.  0.  0.  1.  0.  0.  0.  0.  0.  0. ]
+2025-04-22 15:17:45,220 [src.satellite_marl_env] [DEBUG] Reset: Initial Obs 'target' (finite: True): [-2.  -0.5 -0.  -0.  -0.  -0.   1.   0.   0.   0.   0.   0.   0. ]
+2025-04-22 15:17:45,220 [src.satellite_marl_env] [DEBUG] Reset: Initial Docking Dist: 2.1471, Rel Vel Mag: 0.0000
+2025-04-22 15:17:45,220 [src.satellite_marl_env] [DEBUG] Reset: Initial Collision Detected: False (ncon=0)
+2025-04-22 15:17:45,221 [src.satellite_marl_env] [DEBUG] Reset: Initialized prev_docking_distance = 2.1471
+2025-04-22 15:17:45,221 [src.satellite_marl_env] [DEBUG] --- Environment Reset Finished. Active agents: ['servicer', 'target'] ---
+2025-04-22 15:17:45,222 [src.satellite_marl_env] [DEBUG] --- Step 0 Called (Active Agents: ['servicer', 'target']) ---
+2025-04-22 15:17:45,223 [src.satellite_marl_env] [DEBUG] Step 0: Actions to apply: {'servicer': array([ 0.16589914,  0.26730525, -0.6748644 ,  0.06782547, -0.32240418,
+        0.7064998 ], dtype=float32), 'target': array([-0.16780928, -0.35798764,  0.00835307,  0.6703584 , -0.77554697,
+       -0.7503749 ], dtype=float32)}
+2025-04-22 15:17:45,223 [src.satellite_marl_env] [DEBUG] Step 1 (Post mj_step): Servicer Pos=[-7.70004234e-06 -1.64427683e-05  3.83924030e-07], Vel=[-7.70004234e-04 -1.64427683e-03  3.83924030e-05]; Target Pos=[2.  0.5 0. ]; Contacts=0
+2025-04-22 15:17:45,224 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: DockingDist=2.1471, RelVelMag=0.0018, IsDocked=False
+2025-04-22 15:17:45,224 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: Episode is Over: False (Term=False, Trunc=False)
+2025-04-22 15:17:45,224 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: Applying shaping rewards.
+2025-04-22 15:17:45,224 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: PrevDist=2.1471, CurrDist=2.1471, Delta=0.0000, DeltaReward=0.0000
+2025-04-22 15:17:45,224 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: DistPenalty=-0.1074
+2025-04-22 15:17:51,541 [__main__] [DEBUG] Creating RllibSatelliteEnv with config: {}
+2025-04-22 15:17:51,545 [src.satellite_marl_env] [INFO] MuJoCo model loaded successfully from /Users/leo/RL-Spacecraft-Docking/src/xml_references/satellites.xml
+2025-04-22 15:17:51,546 [src.satellite_marl_env] [DEBUG] MuJoCo IDs retrieved successfully.
+2025-04-22 15:17:51,547 [src.satellite_marl_env] [DEBUG] --- Environment Reset Called ---
+2025-04-22 15:17:51,547 [src.satellite_marl_env] [DEBUG] Resetting with seed: 42
+2025-04-22 15:17:51,547 [src.satellite_marl_env] [DEBUG] MuJoCo data reset.
+2025-04-22 15:17:51,548 [src.satellite_marl_env] [DEBUG] Reset: Initial Servicer qpos[0:7]: [0. 0. 0. 1. 0. 0. 0.]
+2025-04-22 15:17:51,548 [src.satellite_marl_env] [DEBUG] Reset: Initial Target qpos[0:7]: [2.  0.5 0.  1.  0.  0.  0. ]
+2025-04-22 15:17:51,548 [src.satellite_marl_env] [DEBUG] Reset: Initial Servicer qvel[0:6]: [0. 0. 0. 0. 0. 0.]
+2025-04-22 15:17:51,548 [src.satellite_marl_env] [DEBUG] Reset: Initial Target qvel[0:6]: [0. 0. 0. 0. 0. 0.]
+2025-04-22 15:17:51,548 [src.satellite_marl_env] [DEBUG] Initial mj_forward() completed.
+2025-04-22 15:17:51,549 [src.satellite_marl_env] [DEBUG] Reset: Initial Obs 'servicer' (finite: True): [2.  0.5 0.  0.  0.  0.  1.  0.  0.  0.  0.  0.  0. ]
+2025-04-22 15:17:51,550 [src.satellite_marl_env] [DEBUG] Reset: Initial Obs 'target' (finite: True): [-2.  -0.5 -0.  -0.  -0.  -0.   1.   0.   0.   0.   0.   0.   0. ]
+2025-04-22 15:17:51,550 [src.satellite_marl_env] [DEBUG] Reset: Initial Docking Dist: 2.1471, Rel Vel Mag: 0.0000
+2025-04-22 15:17:51,551 [src.satellite_marl_env] [DEBUG] Reset: Initial Collision Detected: False (ncon=0)
+2025-04-22 15:17:51,551 [src.satellite_marl_env] [DEBUG] Reset: Initialized prev_docking_distance = 2.1471
+2025-04-22 15:17:51,551 [src.satellite_marl_env] [DEBUG] --- Environment Reset Finished. Active agents: ['servicer', 'target'] ---
+2025-04-22 15:17:51,551 [src.satellite_marl_env] [DEBUG] --- Step 0 Called (Active Agents: ['servicer', 'target']) ---
+2025-04-22 15:17:51,552 [src.satellite_marl_env] [DEBUG] Step 0: Actions to apply: {'servicer': array([-0.08317097, -0.2847915 , -0.1886567 , -0.38938498,  0.34034055,
+        0.3841805 ], dtype=float32), 'target': array([ 0.86012024, -0.01957224, -0.4547288 , -0.5456501 , -0.5346085 ,
+        0.00750479], dtype=float32)}
+2025-04-22 15:17:51,553 [src.satellite_marl_env] [DEBUG] Step 1 (Post mj_step): Servicer Pos=[ 3.95417247e-05 -9.08597252e-07 -2.09002688e-05], Vel=[ 3.95417247e-03 -9.08597252e-05 -2.09002688e-03]; Target Pos=[2.  0.5 0. ]; Contacts=0
+2025-04-22 15:17:51,553 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: DockingDist=2.1471, RelVelMag=0.0045, IsDocked=False
+2025-04-22 15:17:51,553 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: Episode is Over: False (Term=False, Trunc=False)
+2025-04-22 15:17:51,553 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: Applying shaping rewards.
+2025-04-22 15:17:51,553 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: PrevDist=2.1471, CurrDist=2.1471, Delta=0.0000, DeltaReward=0.0000
+2025-04-22 15:17:51,553 [src.satellite_marl_env] [DEBUG] CalcRewards Step 1: DistPenalty=-0.1074
+2025-04-22 15:17:53,206 [__main__] [INFO] Algorithm built successfully.
+2025-04-22 15:17:53,207 [__main__] [INFO] Using Policy/Module Class: DefaultPPOTorchRLModule
+2025-04-22 15:17:53,207 [__main__] [INFO] 
+--- Starting Training for 100 iterations ---
+2025-04-22 15:17:53,207 [__main__] [DEBUG] --- Starting Training Iteration 1/100 ---
+2025-04-22 15:18:36,397 [__main__] [WARNING] Training interrupted by user (KeyboardInterrupt).
+2025-04-22 15:18:36,397 [__main__] [INFO] 
+--- Training Loop Finished ---
+2025-04-22 15:18:36,398 [__main__] [INFO] Total Training Time: 43.19 seconds
+2025-04-22 15:18:36,398 [__main__] [INFO] Last completed iteration: 1
+2025-04-22 15:18:36,398 [__main__] [INFO] Attempting to save final checkpoint...
+2025-04-22 15:18:36,441 [__main__] [INFO] Final checkpoint saved successfully at: /var/folders/92/t36tz1yx71q_33zknvm23p_00000gn/T/tmpgc5w3jno
+2025-04-22 15:18:36,441 [__main__] [INFO] Running final evaluation...
+2025-04-22 15:18:36,441 [__main__] [INFO] 
+--- Running Evaluation & Recording Video ---
+2025-04-22 15:18:36,441 [__main__] [INFO] Evaluation using new API stack: True
+2025-04-22 15:18:36,441 [__main__] [DEBUG] Creating evaluation PettingZoo environment.
+2025-04-22 15:18:36,445 [src.satellite_marl_env] [INFO] MuJoCo model loaded successfully from /Users/leo/RL-Spacecraft-Docking/src/xml_references/satellites.xml
+2025-04-22 15:18:36,445 [src.satellite_marl_env] [DEBUG] MuJoCo IDs retrieved successfully.
+2025-04-22 15:18:36,446 [__main__] [DEBUG] Evaluation env created. Possible agents: ['servicer', 'target']
+2025-04-22 15:18:36,446 [__main__] [DEBUG] Retrieved action spaces for evaluation.
+2025-04-22 15:18:36,446 [__main__] [INFO] Successfully retrieved RLModules for evaluation (Agents: ['servicer', 'target']).
+2025-04-22 15:18:36,446 [__main__] [INFO] Starting Evaluation Episode: 1/5
+2025-04-22 15:18:36,446 [src.satellite_marl_env] [DEBUG] --- Environment Reset Called ---
+2025-04-22 15:18:36,446 [src.satellite_marl_env] [DEBUG] MuJoCo data reset.
+2025-04-22 15:18:36,447 [src.satellite_marl_env] [DEBUG] Reset: Initial Servicer qpos[0:7]: [0. 0. 0. 1. 0. 0. 0.]
+2025-04-22 15:18:36,447 [src.satellite_marl_env] [DEBUG] Reset: Initial Target qpos[0:7]: [2.  0.5 0.  1.  0.  0.  0. ]
+2025-04-22 15:18:36,447 [src.satellite_marl_env] [DEBUG] Reset: Initial Servicer qvel[0:6]: [0. 0. 0. 0. 0. 0.]
+2025-04-22 15:18:36,448 [src.satellite_marl_env] [DEBUG] Reset: Initial Target qvel[0:6]: [0. 0. 0. 0. 0. 0.]
+2025-04-22 15:18:36,448 [src.satellite_marl_env] [DEBUG] Initial mj_forward() completed.
+2025-04-22 15:18:36,449 [src.satellite_marl_env] [DEBUG] Reset: Initial Obs 'servicer' (finite: True): [2.  0.5 0.  0.  0.  0.  1.  0.  0.  0.  0.  0.  0. ]
+2025-04-22 15:18:36,450 [src.satellite_marl_env] [DEBUG] Reset: Initial Obs 'target' (finite: True): [-2.  -0.5 -0.  -0.  -0.  -0.   1.   0.   0.   0.   0.   0.   0. ]
+2025-04-22 15:18:36,450 [src.satellite_marl_env] [DEBUG] Reset: Initial Docking Dist: 2.1471, Rel Vel Mag: 0.0000
+2025-04-22 15:18:36,450 [src.satellite_marl_env] [DEBUG] Reset: Initial Collision Detected: False (ncon=0)
+2025-04-22 15:18:36,450 [src.satellite_marl_env] [DEBUG] Reset: Initialized prev_docking_distance = 2.1471
+2025-04-22 15:18:36,450 [src.satellite_marl_env] [DEBUG] --- Environment Reset Finished. Active agents: ['servicer', 'target'] ---
+2025-04-22 15:18:36,451 [__main__] [DEBUG] Eval Ep 1: Reset complete. Initial Obs keys: ['servicer', 'target']
+2025-04-22 15:18:36,451 [src.satellite_marl_env] [DEBUG] Initializing MuJoCo Renderer for rgb_array.

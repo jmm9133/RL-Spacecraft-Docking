@@ -1,0 +1,54 @@
+2025-04-22 14:52:22,968 [__main__] [INFO] Logging setup complete. Log file: output/logs/training_20250422_145222.log
+2025-04-22 14:52:22,969 [__main__] [INFO] Registered RLlib environment 'satellite_marl'
+2025-04-22 14:52:22,969 [__main__] [INFO] --- Starting MARL Training Script ---
+2025-04-22 14:52:22,969 [__main__] [INFO] Environment Config: src.config
+2025-04-22 14:52:22,969 [__main__] [INFO] RLlib PPO Algorithm
+2025-04-22 14:52:22,969 [__main__] [INFO] Training Iterations: 100
+2025-04-22 14:52:22,969 [__main__] [INFO] Results Directory: output/ray_results
+2025-04-22 14:52:22,969 [__main__] [INFO] Detected 16 CPUs.
+2025-04-22 14:52:23,050 [filelock] [DEBUG] Attempting to acquire lock 5699624464 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/node_ip_address.json.lock
+2025-04-22 14:52:23,051 [filelock] [DEBUG] Lock 5699624464 acquired on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/node_ip_address.json.lock
+2025-04-22 14:52:23,052 [filelock] [DEBUG] Attempting to release lock 5699624464 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/node_ip_address.json.lock
+2025-04-22 14:52:23,052 [filelock] [DEBUG] Lock 5699624464 released on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/node_ip_address.json.lock
+2025-04-22 14:52:23,053 [filelock] [DEBUG] Attempting to acquire lock 5697096528 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,053 [filelock] [DEBUG] Lock 5697096528 acquired on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,054 [filelock] [DEBUG] Attempting to release lock 5697096528 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,054 [filelock] [DEBUG] Lock 5697096528 released on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,054 [filelock] [DEBUG] Attempting to acquire lock 5699624400 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,055 [filelock] [DEBUG] Lock 5699624400 acquired on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,056 [filelock] [DEBUG] Attempting to release lock 5699624400 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,056 [filelock] [DEBUG] Lock 5699624400 released on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,056 [filelock] [DEBUG] Attempting to acquire lock 5699624528 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,057 [filelock] [DEBUG] Lock 5699624528 acquired on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,057 [filelock] [DEBUG] Attempting to release lock 5699624528 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,058 [filelock] [DEBUG] Lock 5699624528 released on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,058 [filelock] [DEBUG] Attempting to acquire lock 5698651344 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,058 [filelock] [DEBUG] Lock 5698651344 acquired on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,059 [filelock] [DEBUG] Attempting to release lock 5698651344 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,059 [filelock] [DEBUG] Lock 5698651344 released on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,060 [filelock] [DEBUG] Attempting to acquire lock 5697225552 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,060 [filelock] [DEBUG] Lock 5697225552 acquired on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,061 [filelock] [DEBUG] Attempting to release lock 5697225552 on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:23,061 [filelock] [DEBUG] Lock 5697225552 released on /tmp/ray/session_2025-04-22_14-52-23_048952_70633/ports_by_node.json.lock
+2025-04-22 14:52:26,557 [__main__] [INFO] Ray initialized successfully.
+2025-04-22 14:52:26,557 [__main__] [INFO] Creating temporary environment to get action/observation spaces...
+2025-04-22 14:52:26,557 [__main__] [DEBUG] Creating RllibSatelliteEnv with config: {}
+2025-04-22 14:52:26,565 [src.satellite_marl_env] [INFO] MuJoCo model loaded successfully from /Users/leo/RL-Spacecraft-Docking/src/xml_references/satellites.xml
+2025-04-22 14:52:26,567 [src.satellite_marl_env] [DEBUG] MuJoCo IDs retrieved successfully.
+2025-04-22 14:52:26,568 [src.satellite_marl_env] [INFO] SatelliteMARLEnv closed.
+2025-04-22 14:52:26,568 [__main__] [INFO] Observation/Action spaces retrieved successfully:
+2025-04-22 14:52:26,569 [__main__] [INFO]   Agent 'servicer': Obs=Box(-inf, inf, (13,), float32), Act=Box(-1.0, 1.0, (6,), float32)
+2025-04-22 14:52:26,569 [__main__] [INFO]   Agent 'target': Obs=Box(-inf, inf, (13,), float32), Act=Box(-1.0, 1.0, (6,), float32)
+2025-04-22 14:52:26,569 [__main__] [INFO] Configuring RLlib PPO Algorithm...
+2025-04-22 14:52:26,569 [__main__] [INFO] Absolute results path: /Users/leo/RL-Spacecraft-Docking/output/ray_results
+2025-04-22 14:52:26,570 [__main__] [INFO] Using 14 environment runners (workers).
+2025-04-22 14:52:26,570 [__main__] [INFO] Setting rollout_fragment_length: 200
+2025-04-22 14:52:26,570 [__main__] [INFO] Setting train_batch_size: 4000
+2025-04-22 14:52:26,572 [__main__] [ERROR] Failed during RLlib configuration or algorithm build. Exiting.
+Traceback (most recent call last):
+  File "/Users/leo/RL-Spacecraft-Docking/src/train_marl.py", line 475, in <module>
+    evaluation_config = PPOConfig.overrides( # Use PPOConfig.overrides
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leo/RL-Spacecraft-Docking/.venv/lib/python3.11/site-packages/ray/rllib/algorithms/algorithm_config.py", line 228, in overrides
+    raise KeyError(
+KeyError: 'Invalid property name env_runners_extra_configs for config class PPOConfig!'
