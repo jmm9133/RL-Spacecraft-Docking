@@ -23,11 +23,11 @@ from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 2500 # Increase this later if learning starts
+TRAIN_ITERATIONS = 36000 # Increase this later if learning starts
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
-EVAL_EPISODES = 5
+EVAL_EPISODES = 9
 EVAL_MAX_STEPS = env_config.MAX_STEPS_PER_EPISODE
 
 # --- Setup Logging ---
@@ -371,17 +371,22 @@ if __name__ == "__main__":
             .training(
                 gamma=0.99,
                 # --- Try reducing LR and VF clipping ---
-                lr=1e-4,        # Reduced learning rate
-                vf_clip_param=20.0, # Significantly reduced VF clipping
+                #lr=5e-5,        # Reduced learning rate
+                lr=[
+                    [0, 5e-5],       # Start at iteration 0 with 5e-5 (or your current stable LR)
+                    [1500, 1e-5],   # Linearly decay to 1e-5 by iteration 15000
+                    [3600, 5e-7]    # Linearly decay to 5e-6 by iteration 36000 (adjust iters)
+                ],
+                #vf_clip_param=20.0, # Significantly reduced VF clipping
                 # ---
-                kl_coeff=0.2,
-                clip_param=0.2,
-                entropy_coeff=0.001,
+                #kl_coeff=0.2,
+                clip_param=0.1,
+                entropy_coeff=0.0005,
                 grad_clip=0.5,
                 train_batch_size=effective_train_batch_size,
-                num_epochs=4,
+                num_epochs=8,
                 model={
-                    "fcnet_hiddens": [256, 256],
+                    "fcnet_hiddens": [1024, 1024],
                     "fcnet_activation": "tanh",
                     "vf_share_layers": False,
                     }
