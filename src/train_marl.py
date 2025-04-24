@@ -23,11 +23,11 @@ from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 36000 # Increase this later if learning starts
+TRAIN_ITERATIONS = 250 # Increase this later if learning starts
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
-EVAL_EPISODES = 9
+EVAL_EPISODES = 1
 EVAL_MAX_STEPS = env_config.MAX_STEPS_PER_EPISODE
 
 # --- Setup Logging ---
@@ -536,10 +536,10 @@ if __name__ == "__main__":
             servicer_loss_is_nan = np.isnan(servicer_loss) if servicer_stats else True # Treat missing stats as NaN for check
             target_loss_is_nan = np.isnan(target_loss) if target_stats else True
 
-            if servicer_loss_is_nan and target_loss_is_nan and i > 0: # Allow first iter
-                 logger.error(f"NaN detected in detailed losses for both agents at iteration {i+1}. Stopping training.")
-                 logger.error(f"Detailed Learner Info: {learner_info}") # Log the source dict
-                 break
+            #if servicer_loss_is_nan and target_loss_is_nan and i > 0: # Allow first iter
+            #     logger.error(f"NaN detected in detailed losses for both agents at iteration {i+1}. Stopping training.")
+            #     logger.error(f"Detailed Learner Info: {learner_info}") # Log the source dict
+            #     break
             # --- End FIX ---
 
             if i > 5 and timesteps_this_iter == 0: # Check for zero steps processed

@@ -42,7 +42,7 @@ REWARD_WEIGHT_ACTION_COST = -0.00001 # Keep very small (negative weight)
 
 # --- Action Scaling (Low Baseline) ---
 ACTION_FORCE_SCALING = 5.0  # Low value for stability focus
-ACTION_TORQUE_SCALING = 1.0 # Low value for stability focus
+ACTION_TORQUE_SCALING = .10 # Low value for stability focus
 
 # --- Rewards (Base) ---
 REWARD_DOCKING_SUCCESS = 300.0 # High reward for success
