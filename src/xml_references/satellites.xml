@@ -18,7 +18,7 @@
     <!-- Default geom properties -->
     <geom contype="1" conaffinity="1" friction="0.1" density="1000" rgba="0.7 0.7 0.7 1"/>
     <!-- Default joint properties -->
-    <joint type="free" damping="0.1"/> <!-- Add some damping to free joints -->
+    <joint type="free" damping="0.3"/>  <!-- Add some damping to free joints -->
   </default>
 
   <worldbody>

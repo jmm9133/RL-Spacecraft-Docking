@@ -348,7 +348,7 @@ if __name__ == "__main__":
     try:
         num_workers = max(1, (cpu_count or 4) - 2)
         logger.info(f"Using {num_workers} environment runners (workers).")
-        rollout_fragment_length_estimate = 200
+        rollout_fragment_length_estimate = 2000
 
         # --- FIX: Set train_batch_size exactly equal to samples collected per iter ---
         effective_train_batch_size = num_workers * rollout_fragment_length_estimate
@@ -371,16 +371,16 @@ if __name__ == "__main__":
             .training(
                 gamma=0.99,
                 # --- Try reducing LR and VF clipping ---
-                #lr=5e-5,        # Reduced learning rate
-                lr=[
-                    [0, 5e-5],       # Start at iteration 0 with 5e-5 (or your current stable LR)
-                    [1500, 1e-5],   # Linearly decay to 1e-5 by iteration 15000
-                    [3600, 5e-7]    # Linearly decay to 5e-6 by iteration 36000 (adjust iters)
-                ],
+                lr=5e-4,        # Reduced learning rate
+                # lr=[
+                #     [0, 5e-5],       # Start at iteration 0 with 5e-5 (or your current stable LR)
+                #     [1500, 1e-5],   # Linearly decay to 1e-5 by iteration 15000
+                #     [3600, 5e-7]    # Linearly decay to 5e-6 by iteration 36000 (adjust iters)
+                # ],
                 #vf_clip_param=20.0, # Significantly reduced VF clipping
                 # ---
                 #kl_coeff=0.2,
-                clip_param=0.1,
+                clip_param=0.2,
                 entropy_coeff=0.0005,
                 grad_clip=0.5,
                 train_batch_size=effective_train_batch_size,
@@ -413,8 +413,8 @@ if __name__ == "__main__":
                 evaluation_parallel_to_training=True,
                 evaluation_config = PPOConfig.overrides(
                      explore=False,
-                     #observation_filter="MeanStdFilter",
-                     observation_filter="NoFilter",
+                     observation_filter="MeanStdFilter",
+                     #observation_filter="NoFilter",
                      num_cpus_per_env_runner=1
                 )
             )
