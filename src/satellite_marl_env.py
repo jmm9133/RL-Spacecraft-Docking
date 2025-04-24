@@ -145,11 +145,69 @@ class SatelliteMARLEnv(ParallelEnv):
     def action_space(self, agent):
         return self._action_spaces[agent]
 
+    # --- HELPER: Calculate Orientation Error ---
+    # IMPORTANT: This is an EXAMPLE implementation. Verify or replace based on your XML frames.
+    # It calculates the angle between servicer's +Z and target's -Z axes.
+    def _calculate_orientation_error(self):
+        """Calculates the angular error (in radians) between docking ports."""
+        try:
+            # Get world rotation matrices (3x3) for the sites
+            serv_mat = self.data.site_xmat[self.site_ids["servicer_dock"]].reshape(3, 3)
+            targ_mat = self.data.site_xmat[self.site_ids["target_dock"]].reshape(3, 3)
+
+            # Servicer port aims along its local +Z (index 2)
+            serv_z_axis_world = serv_mat[:, 2]
+            # Target port aims along its local -Z (index 2) - we want alignment WITH this direction
+            target_alignment_axis_world = -targ_mat[:, 2] # Target's negative Z in world
+
+            # Calculate the angle between these two vectors using dot product
+            dot_prod = np.clip(np.dot(serv_z_axis_world, target_alignment_axis_world), -1.0, 1.0)
+            angle_rad = np.arccos(dot_prod)
+
+            # Ensure angle is finite, return max error (pi) otherwise
+            if not np.isfinite(angle_rad):
+                logger.warning("Non-finite angle calculated in orientation error.")
+                return np.pi
+            return angle_rad
+
+        except Exception as e:
+            logger.error(f"Exception calculating orientation error: {e}")
+            return np.pi # Return max error (180 degrees)
+
+    # --- HELPER: Calculate Potential Function ---
+    def _calculate_potential(self, distance, rel_vel_mag, orientation_error):
+        """Calculates the potential function Phi based on current state. Higher is better."""
+        potential = 0.0
+        # Ensure inputs are treated as finite for calculation
+        safe_distance = distance if np.isfinite(distance) else 100.0 # Use large number if invalid
+        safe_rel_vel = rel_vel_mag if np.isfinite(rel_vel_mag) else 10.0 # Use large number if invalid
+        safe_orient_err = orientation_error if np.isfinite(orientation_error) else np.pi # Use max error if invalid
+
+        # Potential increases as distance decreases (less negative term)
+        potential += -env_config.POTENTIAL_WEIGHT_DISTANCE * safe_distance
+
+        # Potential increases as velocity decreases (less negative term)
+        potential += -env_config.POTENTIAL_WEIGHT_VELOCITY * (safe_rel_vel**2)
+
+        # Potential increases as orientation error decreases (less negative term)
+        # Only include if weight is non-zero in config
+        if env_config.POTENTIAL_WEIGHT_ORIENT != 0:
+             potential += -env_config.POTENTIAL_WEIGHT_ORIENT * safe_orient_err
+
+        # Ensure potential itself is finite
+        if not np.isfinite(potential):
+             logger.warning(f"Non-finite potential calculated: dist={distance}, vel={rel_vel_mag}, orient={orientation_error} -> potential={potential}. Returning 0.")
+             return 0.0 # Return neutral potential on error
+        return potential
+
+    # --- UPDATED reset FUNCTION ---
     def reset(self, seed=None, options=None):
         logger.debug("--- Environment Reset Called ---")
         if seed is not None:
              logger.debug(f"Resetting with seed: {seed}")
+             # Note: Seeding numpy globally might have side effects if other parts of your code use numpy.random
              np.random.seed(seed)
+             # It's often better to use self.np_random = np.random.RandomState(seed) and use self.np_random hereafter
 
         mujoco.mj_resetData(self.model, self.data)
         logger.debug("MuJoCo data reset.")
@@ -157,89 +215,214 @@ class SatelliteMARLEnv(ParallelEnv):
         # --- Set Initial Conditions ---
         qpos_serv_start = self.joint_qpos_adr[env_config.SERVICER_AGENT_ID]
         qvel_serv_start = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
-        self.data.qpos[qpos_serv_start:qpos_serv_start+3] = [0, 0, 0]
-        self.data.qpos[qpos_serv_start+3:qpos_serv_start+7] = [1, 0, 0, 0]
-        self.data.qvel[qvel_serv_start:qvel_serv_start+6] = [0, 0, 0, 0, 0, 0]
+        self.data.qpos[qpos_serv_start:qpos_serv_start+3] = [0, 0, 0] # Servicer starts at origin
+        self.data.qpos[qpos_serv_start+3:qpos_serv_start+7] = [1, 0, 0, 0] # Default orientation (w,x,y,z)
+        self.data.qvel[qvel_serv_start:qvel_serv_start+6] = [0, 0, 0, 0, 0, 0] # Start stationary
 
         qpos_targ_start = self.joint_qpos_adr[env_config.TARGET_AGENT_ID]
         qvel_targ_start = self.joint_qvel_adr[env_config.TARGET_AGENT_ID]
-        # TODO: Implement randomization based on INITIAL_POS_RANGE, INITIAL_VEL_RANGE
-        initial_target_pos = np.array([2.0, 0.5, 0.0]) # Default start
-        # Example randomization (needs more robust implementation):
+        # Default target start position (relative to world/servicer start)
+        initial_target_pos = np.array([2.0, 0.5, 0.0])
+        # TODO: Implement randomization based on INITIAL_POS_RANGE if needed
+        # Example:
         # rel_pos = np.random.uniform(low=env_config.INITIAL_POS_RANGE[0], high=env_config.INITIAL_POS_RANGE[1])
         # initial_target_pos = self.data.qpos[qpos_serv_start:qpos_serv_start+3] + rel_pos
         self.data.qpos[qpos_targ_start:qpos_targ_start+3] = initial_target_pos
-        self.data.qpos[qpos_targ_start+3:qpos_targ_start+7] = [1, 0, 0, 0]
+        self.data.qpos[qpos_targ_start+3:qpos_targ_start+7] = [1, 0, 0, 0] # Default orientation
         self.data.qvel[qvel_targ_start:qvel_targ_start+6] = [0, 0, 0, 0, 0, 0] # Start stationary
 
         logger.debug(f"Reset: Initial Servicer qpos[0:7]: {self.data.qpos[qpos_serv_start:qpos_serv_start+7]}")
         logger.debug(f"Reset: Initial Target qpos[0:7]: {self.data.qpos[qpos_targ_start:qpos_targ_start+7]}")
-        logger.debug(f"Reset: Initial Servicer qvel[0:6]: {self.data.qvel[qvel_serv_start:qvel_serv_start+6]}")
-        logger.debug(f"Reset: Initial Target qvel[0:6]: {self.data.qvel[qvel_targ_start:qvel_targ_start+6]}")
 
-
-        mujoco.mj_forward(self.model, self.data) # Compute initial state kinematics, contacts
+        mujoco.mj_forward(self.model, self.data) # Compute initial state kinematics
         logger.debug("Initial mj_forward() completed.")
 
         # --- Reset PettingZoo State ---
         self.agents = self.possible_agents[:]
         self.steps = 0
         self.render_frames = []
-        self.current_actions = {} # Clear stored actions
+        self.current_actions = {}
 
         observations = {agent: self._get_obs(agent) for agent in self.possible_agents}
         infos = {agent: {} for agent in self.possible_agents}
 
-        # Log initial observations
-        for agent, obs in observations.items():
-            obs_finite = np.all(np.isfinite(obs))
-            logger.debug(f"Reset: Initial Obs '{agent}' (finite: {obs_finite}): {obs}")
-            if not obs_finite:
-                 logger.error(f"!!! NaN/Inf DETECTED IN RESET OBSERVATION for {agent} !!!")
-
-        # Check initial state conditions for immediate termination/reward issues
-        initial_docking_distance = float('nan')
-        initial_relative_velocity_mag = float('nan')
+        # --- Initialize Previous State for Rewards ---
+        initial_docking_distance = float('inf')
+        initial_relative_velocity_mag = float('inf')
+        initial_orientation_error = np.pi # Max error default
+        initial_dist_finite = False
+        initial_vel_finite = False
+        initial_orient_finite = False
         try:
             servicer_dock_pos = self.data.site_xpos[self.site_ids["servicer_dock"]]
             target_dock_pos = self.data.site_xpos[self.site_ids["target_dock"]]
-            initial_docking_distance = np.linalg.norm(servicer_dock_pos - target_dock_pos)
+            if np.all(np.isfinite(servicer_dock_pos)) and np.all(np.isfinite(target_dock_pos)):
+                 initial_docking_distance = np.linalg.norm(servicer_dock_pos - target_dock_pos)
+                 initial_dist_finite = np.isfinite(initial_docking_distance)
 
-            servicer_qvel_adr = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
-            target_qvel_adr = self.joint_qvel_adr[env_config.TARGET_AGENT_ID]
-            servicer_lin_vel = self.data.qvel[servicer_qvel_adr : servicer_qvel_adr+3]
-            target_lin_vel = self.data.qvel[target_qvel_adr : target_qvel_adr+3]
-            initial_relative_velocity_mag = np.linalg.norm(servicer_lin_vel - target_lin_vel)
-            logger.debug(f"Reset: Initial Docking Dist: {initial_docking_distance:.4f}, Rel Vel Mag: {initial_relative_velocity_mag:.4f}")
+            servicer_lin_vel = self.data.qvel[qvel_serv_start : qvel_serv_start+3]
+            target_lin_vel = self.data.qvel[qvel_targ_start : qvel_targ_start+3] # Target starts stationary
+            if np.all(np.isfinite(servicer_lin_vel)) and np.all(np.isfinite(target_lin_vel)):
+                initial_relative_velocity_mag = np.linalg.norm(servicer_lin_vel - target_lin_vel)
+                initial_vel_finite = np.isfinite(initial_relative_velocity_mag)
 
-            # Check for immediate collision at reset
-            initial_collision = False
-            for i in range(self.data.ncon):
-                contact = self.data.contact[i]
-                geom1_body = self.model.geom_bodyid[contact.geom1]
-                geom2_body = self.model.geom_bodyid[contact.geom2]
-                servicer_body_id = self.body_ids[env_config.SERVICER_AGENT_ID]
-                target_body_id = self.body_ids[env_config.TARGET_AGENT_ID]
-                # Check if the collision involves the main bodies (ignore potential self-collisions or ground)
-                if ((geom1_body == servicer_body_id and geom2_body == target_body_id) or \
-                    (geom1_body == target_body_id and geom2_body == servicer_body_id)) and \
-                    contact.dist < 0.001: # Ensure actual penetration
-                    initial_collision = True; break
-            logger.debug(f"Reset: Initial Collision Detected: {initial_collision} (ncon={self.data.ncon})")
+            initial_orientation_error = self._calculate_orientation_error()
+            initial_orient_finite = np.isfinite(initial_orientation_error)
 
         except Exception as e:
-            logger.exception(f"Error checking initial state conditions: {e}")
+            logger.exception(f"Error getting initial state for reward init: {e}")
 
-        # Initialize previous distance state for reward calculation
-        self.prev_docking_distance = initial_docking_distance if np.isfinite(initial_docking_distance) else 0.0
+        # Use valid values or defaults for potential calculation
+        dist_for_pot = initial_docking_distance if initial_dist_finite else 100.0
+        vel_for_pot = initial_relative_velocity_mag if initial_vel_finite else 0.0 # Assume 0 if invalid at reset
+        orient_for_pot = initial_orientation_error if initial_orient_finite else np.pi
+
+        # Calculate and store initial potential for the first step's reward calculation
+        self.prev_potential = self._calculate_potential(dist_for_pot, vel_for_pot, orient_for_pot)
+        # Store initial distance for logging/comparison if needed
+        self.prev_docking_distance = dist_for_pot
+
+        logger.debug(f"Reset: Initial Docking Dist: {initial_docking_distance:.4f}, Rel Vel Mag: {initial_relative_velocity_mag:.4f}, Orient Err: {initial_orientation_error:.4f}")
         logger.debug(f"Reset: Initialized prev_docking_distance = {self.prev_docking_distance:.4f}")
+        logger.debug(f"Reset: Initialized prev_potential = {self.prev_potential:.4f}")
+
 
         if self.render_mode == "human":
             self.render()
 
         logger.debug(f"--- Environment Reset Finished. Active agents: {self.agents} ---")
         return observations, infos
+    # ------------------------------------------------------------------
+    #  █ NEW  _calculate_rewards_and_done  (positive potential) █
+    # ------------------------------------------------------------------
+    def _calculate_rewards_and_done(self):
+        """
+        Potential-based shaping where Φ(s) is **larger when the goal is
+        closer**.  The shaped reward
+              r_shape = γ Φ(s′) – Φ(s)
+        is therefore > 0 when the servicer moves *toward* docking and
+        < 0 when it moves away.
 
+        Φ(s) =  W_d / (d + ε)                 (distance term, always ≥ 0)
+              – W_v * ||v_rel||               (velocity penalty)
+              – W_o * θ                       (orientation penalty, optional)
+
+        Sparse events:
+            • successful dock      + REWARD_DOCKING_SUCCESS  (episode terminates)
+            • collision (undocked) + REWARD_COLLISION        (terminates)
+            • timeout              -> truncation
+        """
+        # ---------- 1. Read current state ----------
+        try:
+            p_s = self.data.site_xpos[self.site_ids["servicer_dock"]]
+            p_t = self.data.site_xpos[self.site_ids["target_dock"]]
+            d_vec = p_t - p_s
+            dist  = float(np.linalg.norm(d_vec))
+            if not np.isfinite(dist): raise ValueError
+        except Exception:
+            dist = 100.0                                               # far away
+
+        try:
+            qv_s = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
+            qv_t = self.joint_qvel_adr[env_config.TARGET_AGENT_ID]
+            v_rel = self.data.qvel[qv_s:qv_s+3] - self.data.qvel[qv_t:qv_t+3]
+            v_mag = float(np.linalg.norm(v_rel))
+            if not np.isfinite(v_mag): raise ValueError
+        except Exception:
+            v_mag = 10.0                                               # fast
+
+        orient_err = 0.0
+        if env_config.POTENTIAL_WEIGHT_ORIENT != 0:
+            orient_err = self._calculate_orientation_error()
+            if not np.isfinite(orient_err):
+                orient_err = np.pi
+
+        # ---------- 2. Potential Φ(s) ----------
+        EPS = 1e-3                                 # keeps denominator finite
+        Wd  = env_config.POTENTIAL_WEIGHT_DISTANCE
+        Wv  = env_config.POTENTIAL_WEIGHT_VELOCITY
+        Wo  = env_config.POTENTIAL_WEIGHT_ORIENT
+
+        phi =  Wd / (dist + EPS)               \
+             - Wv * v_mag                      \
+             - Wo * orient_err
+
+        if not np.isfinite(phi):
+            logger.warning("[Reward] Non-finite Φ, forcing to 0.")
+            phi = 0.0
+
+        # ---------- 3. Docking & collision checks ----------
+        aligned = orient_err < env_config.DOCKING_ORIENT_THRESHOLD
+        docked  = (dist < env_config.DOCKING_DISTANCE_THRESHOLD and
+                   v_mag < env_config.DOCKING_VELOCITY_THRESHOLD and
+                   aligned)
+
+        collision = False
+        for i in range(self.data.ncon):
+            c = self.data.contact[i]
+            if {self.model.geom_bodyid[c.geom1],
+                self.model.geom_bodyid[c.geom2]} == \
+               {self.body_ids[env_config.SERVICER_AGENT_ID],
+                self.body_ids[env_config.TARGET_AGENT_ID]} and c.dist < 0.0:
+                if not docked: collision = True
+                break
+
+        # ---------- 4. Prepare output dicts ----------
+        rewards      = {a: 0.0 for a in self.possible_agents}
+        terminations = {a: False for a in self.possible_agents}
+        truncations  = {a: False for a in self.possible_agents}
+        infos        = {a: {}   for a in self.possible_agents}
+
+        # ---------- 5. Sparse events ----------
+        if docked:
+            for a in self.possible_agents:
+                terminations[a] = True
+                rewards[a]     += env_config.REWARD_DOCKING_SUCCESS
+                infos[a]['status'] = 'docked'
+
+        elif collision:
+            for a in self.possible_agents:
+                terminations[a] = True
+                rewards[a]     += env_config.REWARD_COLLISION
+                infos[a]['status'] = 'collision'
+
+        # Timeout truncation
+        if self.steps >= env_config.MAX_STEPS_PER_EPISODE:
+            for a in self.possible_agents:
+                truncations[a] = True
+                infos[a]['status'] = 'max_steps'
+
+        episode_over = any(terminations.values()) or any(truncations.values())
+
+        # ---------- 6. Shaping reward ----------
+        gamma = env_config.POTENTIAL_GAMMA
+
+        r_shape = gamma * phi - getattr(self, "prev_potential", 0.0)
+        if not np.isfinite(r_shape): r_shape = 0.0     # safety
+
+        if not episode_over:
+            rewards[env_config.SERVICER_AGENT_ID] += r_shape
+
+        # ---------- 7. Action-cost (optional) ----------
+        if (not episode_over and
+            env_config.REWARD_WEIGHT_ACTION_COST != 0 and
+            hasattr(self, "current_actions")):
+            act = np.asarray(self.current_actions.get(env_config.SERVICER_AGENT_ID,
+                                                      np.zeros(6)))
+            act_pen = env_config.REWARD_WEIGHT_ACTION_COST * np.linalg.norm(act)
+            if np.isfinite(act_pen):
+                rewards[env_config.SERVICER_AGENT_ID] += act_pen
+
+        # ---------- 8. Book-keeping ----------
+        self.prev_potential        = phi
+        self.prev_docking_distance = dist
+
+        # guarantee finite rewards
+        for k, v in rewards.items():
+            if not np.isfinite(v): rewards[k] = 0.0
+
+        return rewards, terminations, truncations, infos
+    # ------------------------------------------------------------------
 
     def _get_obs(self, agent):
         try:
@@ -377,208 +560,225 @@ class SatelliteMARLEnv(ParallelEnv):
                  logger.exception(f"Unexpected error assigning xfrc_applied for agent {agent} at index {body_row_index}: {e}")
 
 
-    def _calculate_rewards_and_done(self):
-        """Calculates rewards, terminations, truncations, and infos."""
-        rewards = {agent: 0.0 for agent in self.possible_agents}
-        terminations = {agent: False for agent in self.possible_agents}
-        truncations = {agent: False for agent in self.possible_agents}
-        infos = {agent: {} for agent in self.possible_agents}
-        active_agents = self.agents[:] # Use current active agents list
+    # def _calculate_rewards_and_done(self):
+    #     """
+    #     Calculates rewards, terminations, truncations, and infos.
+    #     Includes Distance-Weighted Velocity Penalty and Goal Proximity Bonus.
+    #     """
+    #     rewards = {agent: 0.0 for agent in self.possible_agents}
+    #     terminations = {agent: False for agent in self.possible_agents}
+    #     truncations = {agent: False for agent in self.possible_agents}
+    #     infos = {agent: {} for agent in self.possible_agents}
+    #     active_agents = self.agents[:] # Use current active agents list
 
-        # --- Calculate docking status ---
-        is_docked = False
-        docking_distance = float('inf')
-        relative_velocity_mag = float('inf')
-        current_docking_distance_finite = False
-        current_rel_vel_finite = False
+    #     # --- Calculate docking status ---
+    #     is_docked = False
+    #     docking_distance = float('inf')
+    #     relative_velocity_mag = float('inf')
+    #     current_docking_distance_finite = False
+    #     current_rel_vel_finite = False
 
-        try:
-            servicer_dock_pos = self.data.site_xpos[self.site_ids["servicer_dock"]]
-            target_dock_pos = self.data.site_xpos[self.site_ids["target_dock"]]
-            # Check if site positions are valid
-            if not np.all(np.isfinite(servicer_dock_pos)) or not np.all(np.isfinite(target_dock_pos)):
-                 logger.warning(f"NaN/Inf in docking site positions at step {self.steps}. Servicer={servicer_dock_pos}, Target={target_dock_pos}")
-            else:
-                 docking_distance = np.linalg.norm(servicer_dock_pos - target_dock_pos)
-                 current_docking_distance_finite = np.isfinite(docking_distance)
+    #     try:
+    #         servicer_dock_pos = self.data.site_xpos[self.site_ids["servicer_dock"]]
+    #         target_dock_pos = self.data.site_xpos[self.site_ids["target_dock"]]
+    #         if not np.all(np.isfinite(servicer_dock_pos)) or not np.all(np.isfinite(target_dock_pos)):
+    #              logger.warning(f"NaN/Inf in docking site positions at step {self.steps}. Servicer={servicer_dock_pos}, Target={target_dock_pos}")
+    #         else:
+    #              docking_distance = np.linalg.norm(servicer_dock_pos - target_dock_pos)
+    #              current_docking_distance_finite = np.isfinite(docking_distance)
 
-            servicer_qvel_adr = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
-            target_qvel_adr = self.joint_qvel_adr[env_config.TARGET_AGENT_ID]
-            servicer_lin_vel = self.data.qvel[servicer_qvel_adr : servicer_qvel_adr+3]
-            target_lin_vel = self.data.qvel[target_qvel_adr : target_qvel_adr+3]
-            # Check if velocities are valid
-            if not np.all(np.isfinite(servicer_lin_vel)) or not np.all(np.isfinite(target_lin_vel)):
-                logger.warning(f"NaN/Inf in body velocities for docking check at step {self.steps}. Servicer={servicer_lin_vel}, Target={target_lin_vel}")
-            else:
-                relative_velocity_mag = np.linalg.norm(servicer_lin_vel - target_lin_vel)
-                current_rel_vel_finite = np.isfinite(relative_velocity_mag)
+    #         servicer_qvel_adr = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
+    #         target_qvel_adr = self.joint_qvel_adr[env_config.TARGET_AGENT_ID]
+    #         servicer_lin_vel = self.data.qvel[servicer_qvel_adr : servicer_qvel_adr+3]
+    #         target_lin_vel = self.data.qvel[target_qvel_adr : target_qvel_adr+3]
+    #         if not np.all(np.isfinite(servicer_lin_vel)) or not np.all(np.isfinite(target_lin_vel)):
+    #             logger.warning(f"NaN/Inf in body velocities for docking check at step {self.steps}. Servicer={servicer_lin_vel}, Target={target_lin_vel}")
+    #         else:
+    #             relative_velocity_mag = np.linalg.norm(servicer_lin_vel - target_lin_vel)
+    #             current_rel_vel_finite = np.isfinite(relative_velocity_mag)
 
-            # Check docking success condition only if distances/velocities are valid
-            if current_docking_distance_finite and current_rel_vel_finite:
-                is_docked = (docking_distance < env_config.DOCKING_DISTANCE_THRESHOLD and
-                             relative_velocity_mag < env_config.DOCKING_VELOCITY_THRESHOLD)
+    #         if current_docking_distance_finite and current_rel_vel_finite:
+    #             is_docked = (docking_distance < env_config.DOCKING_DISTANCE_THRESHOLD and
+    #                          relative_velocity_mag < env_config.DOCKING_VELOCITY_THRESHOLD)
 
-            logger.debug(f"CalcRewards Step {self.steps}: DockingDist={docking_distance if current_docking_distance_finite else 'NaN':.4f}, RelVelMag={relative_velocity_mag if current_rel_vel_finite else 'NaN':.4f}, IsDocked={is_docked}")
+    #         logger.debug(f"CalcRewards Step {self.steps}: DockingDist={docking_distance if current_docking_distance_finite else 'NaN':.4f}, RelVelMag={relative_velocity_mag if current_rel_vel_finite else 'NaN':.4f}, IsDocked={is_docked}")
 
-        except IndexError:
-             logger.error(f"IndexError calculating docking status at step {self.steps}. Site or joint IDs might be invalid.")
-        except Exception as e:
-             logger.exception(f"Unexpected error calculating docking status at step {self.steps}: {e}")
+    #     except IndexError:
+    #          logger.error(f"IndexError calculating docking status at step {self.steps}. Site or joint IDs might be invalid.")
+    #     except Exception as e:
+    #          logger.exception(f"Unexpected error calculating docking status at step {self.steps}: {e}")
 
-        # --- Check for collisions ---
-        is_collision = False
-        try:
-            num_contacts = self.data.ncon
-            servicer_body_id = self.body_ids[env_config.SERVICER_AGENT_ID]
-            target_body_id = self.body_ids[env_config.TARGET_AGENT_ID]
-            for i in range(num_contacts):
-                contact = self.data.contact[i]
-                geom1_body = self.model.geom_bodyid[contact.geom1]
-                geom2_body = self.model.geom_bodyid[contact.geom2]
+    #     # --- Check for collisions ---
+    #     is_collision = False
+    #     try:
+    #         num_contacts = self.data.ncon
+    #         servicer_body_id = self.body_ids[env_config.SERVICER_AGENT_ID]
+    #         target_body_id = self.body_ids[env_config.TARGET_AGENT_ID]
+    #         for i in range(num_contacts):
+    #             contact = self.data.contact[i]
+    #             geom1_body = self.model.geom_bodyid[contact.geom1]
+    #             geom2_body = self.model.geom_bodyid[contact.geom2]
+    #             is_target_servicer_collision = (geom1_body == servicer_body_id and geom2_body == target_body_id) or \
+    #                                            (geom1_body == target_body_id and geom2_body == servicer_body_id)
+    #             if is_target_servicer_collision and contact.dist < 0.001:
+    #                 if not is_docked:
+    #                     is_collision = True
+    #                     logger.debug(f"CalcRewards Step {self.steps}: Collision detected between servicer and target, contact {i}, dist={contact.dist:.4f}")
+    #                     break
+    #     except IndexError:
+    #         logger.error(f"IndexError checking collisions at step {self.steps}. Body/Geom IDs may be invalid.")
+    #     except Exception as e:
+    #         logger.exception(f"Unexpected error checking collisions at step {self.steps}: {e}")
 
-                # Check if the collision is between the two main satellite bodies
-                is_target_servicer_collision = (geom1_body == servicer_body_id and geom2_body == target_body_id) or \
-                                               (geom1_body == target_body_id and geom2_body == servicer_body_id)
+    #     # --- Termination conditions ---
+    #     if is_docked:
+    #         logger.info(f"Docking Successful at step {self.steps}!")
+    #         for agent in self.possible_agents:
+    #              terminations[agent] = True
+    #              rewards[agent] += env_config.REWARD_DOCKING_SUCCESS
+    #              infos.setdefault(agent, {})['status'] = 'docked'
 
-                if is_target_servicer_collision and contact.dist < 0.001: # Check for actual penetration
-                    # Avoid penalizing collision if successful docking occurred in the same step
-                    if not is_docked:
-                        is_collision = True
-                        logger.debug(f"CalcRewards Step {self.steps}: Collision detected between servicer (body {servicer_body_id}) and target (body {target_body_id}), contact {i}, dist={contact.dist:.4f}")
-                        break # Stop checking once a collision is confirmed
-            # logger.debug(f"CalcRewards Step {self.steps}: Collision Check Complete. IsCollision={is_collision} (ncon={num_contacts})")
+    #     elif is_collision:
+    #         logger.info(f"Collision Detected at step {self.steps}!")
+    #         for agent in self.possible_agents:
+    #              terminations[agent] = True
+    #              rewards[agent] += env_config.REWARD_COLLISION
+    #              infos.setdefault(agent, {})['status'] = 'collision'
 
-        except IndexError:
-            logger.error(f"IndexError checking collisions at step {self.steps}. Body/Geom IDs may be invalid.")
-        except Exception as e:
-            logger.exception(f"Unexpected error checking collisions at step {self.steps}: {e}")
+    #     # --- Truncation conditions ---
+    #     if self.steps >= env_config.MAX_STEPS_PER_EPISODE:
+    #         logger.info(f"Max steps ({env_config.MAX_STEPS_PER_EPISODE}) reached, episode truncated at step {self.steps}.")
+    #         for agent in self.possible_agents:
+    #              if not terminations.get(agent, False): # Only truncate if not already terminated
+    #                   truncations[agent] = True
+    #                   infos.setdefault(agent, {})['status'] = 'max_steps'
 
+    #     # --- Reward Shaping (Applied ONLY if episode is not done/terminated/truncated yet) ---
+    #     is_terminated_this_step = any(terminations.values())
+    #     is_truncated_this_step = any(truncations.values())
+    #     episode_is_over = is_terminated_this_step or is_truncated_this_step
+    #     logger.debug(f"CalcRewards Step {self.steps}: Episode is Over: {episode_is_over} (Term={is_terminated_this_step}, Trunc={is_truncated_this_step})")
 
-        # --- Termination conditions ---
-        if is_docked:
-            logger.info(f"Docking Successful at step {self.steps}!")
-            for agent in self.possible_agents: # Terminate all on success
-                 terminations[agent] = True
-                 rewards[agent] += env_config.REWARD_DOCKING_SUCCESS
-                 if agent in infos: infos[agent]['status'] = 'docked'
-                 else: infos[agent] = {'status': 'docked'}
+    #     # Store intermediate reward components for logging
+    #     # Initialize with base rewards from docking/collision/etc.
+    #     reward_component_log = {agent: {'base': rewards[agent]} for agent in self.possible_agents}
 
-        elif is_collision:
-            logger.info(f"Collision Detected at step {self.steps}!")
-            for agent in self.possible_agents: # Terminate all on collision
-                 terminations[agent] = True
-                 rewards[agent] += env_config.REWARD_COLLISION
-                 if agent in infos: infos[agent]['status'] = 'collision'
-                 else: infos[agent] = {'status': 'collision'}
+    #     if not episode_is_over:
+    #         logger.debug(f"CalcRewards Step {self.steps}: Applying shaping rewards.")
 
-        # --- Truncation conditions ---
-        if self.steps >= env_config.MAX_STEPS_PER_EPISODE:
-            logger.info(f"Max steps ({env_config.MAX_STEPS_PER_EPISODE}) reached, episode truncated at step {self.steps}.")
-            for agent in self.possible_agents:
-                 if not terminations.get(agent, False): # Only truncate if not already terminated
-                      truncations[agent] = True
-                      if agent in infos: infos[agent]['status'] = 'max_steps'
-                      else: infos[agent] = {'status': 'max_steps'}
+    #         # --- Distance Delta Reward (Servicer) ---
+    #         dist_delta_reward = 0.0
+    #         current_dist_for_delta = docking_distance if current_docking_distance_finite else self.prev_docking_distance
+    #         if np.isfinite(self.prev_docking_distance) and current_docking_distance_finite:
+    #             dist_delta = self.prev_docking_distance - current_dist_for_delta # Positive if got closer
+    #             dist_delta_reward = env_config.REWARD_WEIGHT_DISTANCE_DELTA * dist_delta
+                
+    #             logger.debug(f"CalcRewards Step {self.steps}: PrevDist={self.prev_docking_distance:.4f}, CurrDist={current_dist_for_delta:.4f}, Delta={dist_delta:.4f}, DeltaReward={dist_delta_reward:.4f}")
+    #             if env_config.SERVICER_AGENT_ID in active_agents:
+    #                 rewards[env_config.SERVICER_AGENT_ID] += dist_delta_reward
+    #                 reward_component_log[env_config.SERVICER_AGENT_ID]['dist_delta'] = dist_delta_reward
+    #         else:
+    #              logger.warning(f"CalcRewards Step {self.steps}: Skipping distance delta reward due to non-finite distance (Prev={self.prev_docking_distance}, Curr={docking_distance}).")
 
-        # --- Reward Shaping (Applied ONLY if episode is not done/terminated/truncated yet) ---
-        is_terminated_this_step = any(terminations.values())
-        is_truncated_this_step = any(truncations.values())
-        episode_is_over = is_terminated_this_step or is_truncated_this_step
-        logger.debug(f"CalcRewards Step {self.steps}: Episode is Over: {episode_is_over} (Term={is_terminated_this_step}, Trunc={is_truncated_this_step})")
+    #         # --- Distance Penalty (Servicer) ---
+    #         dist_penalty = 0.0
+    #         if env_config.REWARD_WEIGHT_DISTANCE != 0 and current_docking_distance_finite:
+    #             dist_penalty = docking_distance * env_config.REWARD_WEIGHT_DISTANCE
+    #             logger.debug(f"CalcRewards Step {self.steps}: DistPenalty={dist_penalty:.4f}")
+    #             if env_config.SERVICER_AGENT_ID in active_agents:
+    #                 rewards[env_config.SERVICER_AGENT_ID] += dist_penalty
+    #                 reward_component_log[env_config.SERVICER_AGENT_ID]['dist_penalty'] = dist_penalty
+    #         elif env_config.REWARD_WEIGHT_DISTANCE != 0:
+    #              logger.warning(f"CalcRewards Step {self.steps}: Skipping distance penalty due to non-finite distance.")
 
+    #         # --- *** NEW: Distance-Weighted Velocity Penalty (Servicer) *** ---
+    #         vel_penalty = 0.0
+    #         # Use the weight from config, should be negative (e.g., -0.1, -0.5)
+    #         vel_penalty_weight = env_config.REWARD_WEIGHT_VELOCITY_MAG
+    #         epsilon_vel_penalty = env_config.VEL_PENALTY_EPSILON # Add this to config (e.g., 0.05)
 
-        # Store intermediate reward components for logging
-        reward_component_log = {agent: {'base': rewards[agent]} for agent in self.possible_agents}
+    #         if vel_penalty_weight != 0 and current_docking_distance_finite and current_rel_vel_finite:
+    #              # Option A: Penalty increases as velocity / (distance + epsilon)
+    #              vel_penalty = vel_penalty_weight * (relative_velocity_mag / (docking_distance + epsilon_vel_penalty))
 
-        if not episode_is_over:
-            logger.debug(f"CalcRewards Step {self.steps}: Applying shaping rewards.")
-            # --- Distance Delta Reward (Servicer) ---
-            dist_delta_reward = 0.0
-            # Use the valid distance from this step, or fall back if it was invalid
-            current_dist_for_delta = docking_distance if current_docking_distance_finite else self.prev_docking_distance
-            # Ensure previous distance was valid too
-            if np.isfinite(self.prev_docking_distance) and current_docking_distance_finite:
-                dist_delta = self.prev_docking_distance - current_dist_for_delta # Positive if got closer
-                dist_delta_reward = env_config.REWARD_WEIGHT_DISTANCE_DELTA * dist_delta
-                logger.debug(f"CalcRewards Step {self.steps}: PrevDist={self.prev_docking_distance:.4f}, CurrDist={current_dist_for_delta:.4f}, Delta={dist_delta:.4f}, DeltaReward={dist_delta_reward:.4f}")
-                if env_config.SERVICER_AGENT_ID in active_agents:
-                    rewards[env_config.SERVICER_AGENT_ID] += dist_delta_reward
-                    reward_component_log[env_config.SERVICER_AGENT_ID]['dist_delta'] = dist_delta_reward
-            else:
-                 logger.warning(f"CalcRewards Step {self.steps}: Skipping distance delta reward due to non-finite distance (Prev={self.prev_docking_distance}, Curr={docking_distance}).")
+    #              # Option B: Quadratic velocity penalty weighted by 1/distance (even stronger)
+    #              # vel_penalty = vel_penalty_weight * (relative_velocity_mag**2 / (docking_distance + epsilon_vel_penalty))
 
-            # --- Distance Penalty (Servicer) ---
-            dist_penalty = 0.0
-            if env_config.REWARD_WEIGHT_DISTANCE != 0 and current_docking_distance_finite:
-                dist_penalty = docking_distance * env_config.REWARD_WEIGHT_DISTANCE
-                logger.debug(f"CalcRewards Step {self.steps}: DistPenalty={dist_penalty:.4f}")
-                if env_config.SERVICER_AGENT_ID in active_agents:
-                    rewards[env_config.SERVICER_AGENT_ID] += dist_penalty
-                    reward_component_log[env_config.SERVICER_AGENT_ID]['dist_penalty'] = dist_penalty
-            elif env_config.REWARD_WEIGHT_DISTANCE != 0:
-                 logger.warning(f"CalcRewards Step {self.steps}: Skipping distance penalty due to non-finite distance.")
-
-
-            # --- Velocity Penalty (Servicer) ---
-            vel_penalty = 0.0
-            if env_config.REWARD_WEIGHT_VELOCITY_MAG != 0 and current_rel_vel_finite:
-                 vel_penalty = relative_velocity_mag * env_config.REWEIGHT_VELOCITY_MAG
-                 logger.debug(f"CalcRewards Step {self.steps}: VelPenalty={vel_penalty:.4f}")
-                 if env_config.SERVICER_AGENT_ID in active_agents:
-                     rewards[env_config.SERVICER_AGENT_ID] += vel_penalty
-                     reward_component_log[env_config.SERVICER_AGENT_ID]['vel_penalty'] = vel_penalty
-            elif env_config.REWARD_WEIGHT_VELOCITY_MAG != 0:
-                 logger.warning(f"CalcRewards Step {self.steps}: Skipping velocity penalty due to non-finite relative velocity.")
-
-
-            # --- Action Cost Penalty (All Active Agents) ---
-            action_magnitude_penalty_serv = 0.0
-            action_magnitude_penalty_targ = 0.0
-            if env_config.REWARD_WEIGHT_ACTION_COST != 0:
-                 if hasattr(self, 'current_actions') and self.current_actions:
-                     for agent_id, action in self.current_actions.items():
-                          if agent_id in active_agents:
-                              action_np = np.asarray(action) # Ensure numpy
-                              action_norm = np.linalg.norm(action_np)
-                              if np.isfinite(action_norm): # Avoid adding nan cost
-                                   action_magnitude_penalty = action_norm * env_config.REWARD_WEIGHT_ACTION_COST
-                                   rewards[agent_id] += action_magnitude_penalty
-                                   if agent_id == env_config.SERVICER_AGENT_ID:
-                                       action_magnitude_penalty_serv = action_magnitude_penalty
-                                       reward_component_log[agent_id]['action_cost'] = action_magnitude_penalty
-                                   elif agent_id == env_config.TARGET_AGENT_ID:
-                                       action_magnitude_penalty_targ = action_magnitude_penalty
-                                       reward_component_log[agent_id]['action_cost'] = action_magnitude_penalty
-                              else:
-                                   logger.warning(f"CalcRewards Step {self.steps}: NaN/Inf Action norm for {agent_id}. Action={action_np}")
-                     logger.debug(f"CalcRewards Step {self.steps}: ActionCostServ={action_magnitude_penalty_serv:.4f}, ActionCostTarg={action_magnitude_penalty_targ:.4f}")
-                 else:
-                      logger.warning(f"CalcRewards Step {self.steps}: Cannot apply action cost: self.current_actions not found or empty.")
-
-        else: # if episode_is_over
-            logger.debug(f"CalcRewards Step {self.steps}: Episode is Over. Skipped shaping rewards.")
-
-        # --- Log final reward components ---
-        for agent in self.possible_agents:
-             reward_component_log[agent]['final'] = rewards[agent]
-        logger.debug(f"CalcRewards Step {self.steps}: Final Reward Components: {reward_component_log}")
-
-        # --- Final check for NaN/Inf in rewards and replace with 0 ---
-        for agent in self.possible_agents:
-            if not np.isfinite(rewards[agent]):
-                logger.error(f"!!! NaN or Inf detected in FINAL calculated reward for {agent} at step {self.steps}. Setting reward to 0. Components: {reward_component_log.get(agent, {})}")
-                rewards[agent] = 0.0
-
-        # --- Update previous distance for next step ---
-        # Only update if the current distance was valid
-        if current_docking_distance_finite:
-            self.prev_docking_distance = docking_distance
-            logger.debug(f"CalcRewards Step {self.steps}: Updated prev_docking_distance = {self.prev_docking_distance:.4f}")
-        else:
-            logger.warning(f"CalcRewards Step {self.steps}: Not updating prev_docking_distance due to current non-finite value ({docking_distance}). Kept {self.prev_docking_distance}")
+    #              logger.debug(f"CalcRewards Step {self.steps}: VelPenalty(DistWeighted)={vel_penalty:.4f}")
+    #              if env_config.SERVICER_AGENT_ID in active_agents:
+    #                  rewards[env_config.SERVICER_AGENT_ID] += vel_penalty
+    #                  reward_component_log[env_config.SERVICER_AGENT_ID]['vel_penalty_dist_weighted'] = vel_penalty # Log with new name
+    #         elif vel_penalty_weight != 0:
+    #              logger.warning(f"CalcRewards Step {self.steps}: Skipping distance-weighted velocity penalty due to non-finite distance/velocity.")
+    #         # --- *** END NEW VELOCITY PENALTY *** ---
 
 
-        return rewards, terminations, truncations, infos
+    #         # --- *** NEW: Goal Proximity Bonus (Servicer) *** ---
+    #         proximity_bonus = 0.0
+    #         # Get thresholds and weight from config
+    #         close_threshold = env_config.PROXIMITY_BONUS_DIST_THRESHOLD # e.g., 0.5
+    #         stable_vel_threshold = env_config.PROXIMITY_BONUS_VEL_THRESHOLD # e.g., 0.05
+    #         proximity_bonus_weight = env_config.PROXIMITY_BONUS_WEIGHT # e.g., 5.0
+
+    #         if proximity_bonus_weight != 0 and current_docking_distance_finite and current_rel_vel_finite:
+    #             if docking_distance < close_threshold and relative_velocity_mag < stable_vel_threshold:
+    #                 # Constant bonus for being close and stable
+    #                 proximity_bonus = proximity_bonus_weight
+    #                 logger.debug(f"CalcRewards Step {self.steps}: ProximityBonus={proximity_bonus:.4f}")
+    #                 if env_config.SERVICER_AGENT_ID in active_agents:
+    #                     rewards[env_config.SERVICER_AGENT_ID] += proximity_bonus
+    #                     reward_component_log[env_config.SERVICER_AGENT_ID]['proximity_bonus'] = proximity_bonus
+    #         # --- *** END PROXIMITY BONUS *** ---
+
+
+    #         # --- Action Cost Penalty (All Active Agents) ---
+    #         action_magnitude_penalty_serv = 0.0
+    #         action_magnitude_penalty_targ = 0.0
+    #         if env_config.REWARD_WEIGHT_ACTION_COST != 0:
+    #              if hasattr(self, 'current_actions') and self.current_actions:
+    #                  for agent_id, action in self.current_actions.items():
+    #                       if agent_id in active_agents:
+    #                           action_np = np.asarray(action) # Ensure numpy
+    #                           action_norm = np.linalg.norm(action_np)
+    #                           if np.isfinite(action_norm):
+    #                                action_magnitude_penalty = action_norm * env_config.REWARD_WEIGHT_ACTION_COST
+    #                                rewards[agent_id] += action_magnitude_penalty
+    #                                reward_component_log[agent_id]['action_cost'] = action_magnitude_penalty
+    #                                # Store separately for logging clarity if needed
+    #                                if agent_id == env_config.SERVICER_AGENT_ID:
+    #                                    action_magnitude_penalty_serv = action_magnitude_penalty
+    #                                elif agent_id == env_config.TARGET_AGENT_ID:
+    #                                    action_magnitude_penalty_targ = action_magnitude_penalty
+    #                           else:
+    #                                logger.warning(f"CalcRewards Step {self.steps}: NaN/Inf Action norm for {agent_id}. Action={action_np}")
+    #                  logger.debug(f"CalcRewards Step {self.steps}: ActionCostServ={action_magnitude_penalty_serv:.4f}, ActionCostTarg={action_magnitude_penalty_targ:.4f}")
+    #              else:
+    #                   logger.warning(f"CalcRewards Step {self.steps}: Cannot apply action cost: self.current_actions not found or empty.")
+
+    #     else: # if episode_is_over
+    #         logger.debug(f"CalcRewards Step {self.steps}: Episode is Over. Skipped shaping rewards.")
+
+    #     # --- Log final reward components ---
+    #     for agent in self.possible_agents:
+    #          # Ensure 'final' key exists, summing base reward and any shaping rewards applied
+    #          reward_component_log[agent]['final'] = rewards[agent]
+    #     logger.debug(f"CalcRewards Step {self.steps}: Final Reward Components: {reward_component_log}")
+
+    #     # --- Final check for NaN/Inf in rewards and replace with 0 ---
+    #     for agent in self.possible_agents:
+    #         if not np.isfinite(rewards[agent]):
+    #             logger.error(f"!!! NaN or Inf detected in FINAL calculated reward for {agent} at step {self.steps}. Setting reward to 0. Components: {reward_component_log.get(agent, {})}")
+    #             rewards[agent] = 0.0
+
+    #     # --- Update previous distance for next step ---
+    #     if current_docking_distance_finite:
+    #         self.prev_docking_distance = docking_distance
+    #         logger.debug(f"CalcRewards Step {self.steps}: Updated prev_docking_distance = {self.prev_docking_distance:.4f}")
+    #     else:
+    #         # Keep previous valid distance if current one is invalid
+    #         logger.warning(f"CalcRewards Step {self.steps}: Not updating prev_docking_distance due to current non-finite value ({docking_distance}). Kept {self.prev_docking_distance}")
+
+    #     return rewards, terminations, truncations, infos
 
 
     def step(self, actions):
