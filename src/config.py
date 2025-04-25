@@ -27,7 +27,7 @@ REWARD_WEIGHT_DISTANCE_FAR = 0.005    # *** TUNE THIS *** (Try 0.0, 0.01, 0.05)
 
 # ** Phase 2: Stabilize & Align (Penalties when close) **
 # Define the distance threshold for activating phase 2 penalties
-CLOSE_DIST_THRESHOLD = 0.9           # *** TUNE THIS *** (e.g., 0.3, 0.5, 0.7)
+CLOSE_DIST_THRESHOLD = 0.5           # *** TUNE THIS *** (e.g., 0.3, 0.5, 0.7)
 
 # Strong penalty (+ve weight) for velocity ONLY when distance < CLOSE_DIST_THRESHOLD
 REWARD_WEIGHT_VELOCITY_CLOSE = 0.5   # *** TUNE THIS *** (e.g., 0.1, 0.5, 1.0)
@@ -51,7 +51,7 @@ REWARD_OUT_OF_BOUNDS = -200.0  # Penalty for going too far (if implemented)
 
 # --- Shaping Rewards (Simplified Baseline) ---
 # Moderate positive incentive for getting closer step-by-step
-REWARD_WEIGHT_DISTANCE_DELTA = 5.0
+
 # Gentle negative gradient pulling towards the target
 REWARD_WEIGHT_DISTANCE = -0.02
 # Moderate penalty for relative velocity (using SIMPLE LINEAR penalty in env code for now)

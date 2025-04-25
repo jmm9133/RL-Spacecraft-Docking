@@ -72,11 +72,13 @@ class SatelliteMARLEnv(ParallelEnv):
         except Exception as e:
              logger.exception(f"Error loading MuJoCo model from {xml_path}: {e}")
              raise
-
+        self.relative_pos_world = 0
+        self.relative_vel_world = 0
         self.possible_agents = env_config.POSSIBLE_AGENTS[:]
         self.agent_name_mapping = {i: agent for i, agent in enumerate(self.possible_agents)}
         self.render_mode = render_mode
-
+        self.episode_rewards = {agent: 0.0 for agent in self.possible_agents}
+        self.episode_lengths = {agent: 0 for agent in self.possible_agents}
         # Define Spaces using functions as required by PettingZoo
         self._observation_spaces = {
             agent: spaces.Box(low=-np.inf, high=np.inf, shape=(env_config.OBS_DIM_PER_AGENT,), dtype=np.float32)
@@ -208,7 +210,8 @@ class SatelliteMARLEnv(ParallelEnv):
              # Note: Seeding numpy globally might have side effects if other parts of your code use numpy.random
              np.random.seed(seed)
              # It's often better to use self.np_random = np.random.RandomState(seed) and use self.np_random hereafter
-
+        self.episode_rewards = {agent: 0.0 for agent in self.possible_agents}
+        self.episode_lengths = {agent: 0 for agent in self.possible_agents}
         mujoco.mj_resetData(self.model, self.data)
         logger.debug("MuJoCo data reset.")
 
@@ -276,7 +279,7 @@ class SatelliteMARLEnv(ParallelEnv):
         dist_for_pot = initial_docking_distance if initial_dist_finite else 100.0
         vel_for_pot = initial_relative_velocity_mag if initial_vel_finite else 0.0 # Assume 0 if invalid at reset
         orient_for_pot = initial_orientation_error if initial_orient_finite else np.pi
-
+        
         # Calculate and store initial potential for the first step's reward calculation
         self.prev_potential = self._calculate_potential(dist_for_pot, vel_for_pot, orient_for_pot)
         # Store initial distance for logging/comparison if needed
@@ -386,6 +389,15 @@ class SatelliteMARLEnv(ParallelEnv):
                 rewards[a]     += env_config.REWARD_COLLISION
                 infos[a]['status'] = 'collision'
 
+        #------ Check OOB -------
+        dot_product = np.dot(self.relative_pos_world, self.relative_vel_world)
+        moving_toward_each_other = dot_product < 0
+        relative_pos_norm = np.linalg.norm(self.relative_pos_world)
+        if relative_pos_norm > 10 and moving_toward_each_other == True:
+            for a in self.possible_agents:
+                terminations[a] = True
+                rewards[a]     += env_config.REWARD_OUT_OF_BOUNDS
+                infos[a]['status'] = 'OOB'
         # Timeout truncation
         if self.steps >= env_config.MAX_STEPS_PER_EPISODE:
             for a in self.possible_agents:
@@ -463,15 +475,15 @@ class SatelliteMARLEnv(ParallelEnv):
             # --- End Check ---
 
 
-            relative_pos_world = target_pos - servicer_pos
-            relative_vel_world = target_vel - servicer_vel
+            self.relative_pos_world = target_pos - servicer_pos
+            self.relative_vel_world = target_vel - servicer_vel
 
             if agent == env_config.SERVICER_AGENT_ID:
-                obs = np.concatenate([ relative_pos_world, relative_vel_world,
+                obs = np.concatenate([ self.relative_pos_world, self.relative_vel_world,
                                        servicer_quat, servicer_ang_vel ])
             elif agent == env_config.TARGET_AGENT_ID:
                 # Target observes negative relative pos/vel from its perspective
-                obs = np.concatenate([ -relative_pos_world, -relative_vel_world,
+                obs = np.concatenate([ -self.relative_pos_world, -self.relative_vel_world,
                                        target_quat, target_ang_vel ])
             else:
                 logger.error(f"Unknown agent ID requested for observation: {agent}")
@@ -857,6 +869,9 @@ class SatelliteMARLEnv(ParallelEnv):
 
         # Calculate rewards, dones, and infos based on the new state
         rewards, terminations, truncations, infos = self._calculate_rewards_and_done()
+        for agent in self.agents:
+            self.episode_rewards[agent] += rewards[agent]
+            self.episode_lengths[agent] += 1
 
         # Update the list of active agents
         previous_agents = self.agents[:]
@@ -892,7 +907,22 @@ class SatelliteMARLEnv(ParallelEnv):
         if not self.agents:
              logger.info(f"Episode ended at step {self.steps-1}. Terminations={terminations}, Truncations={truncations}")
 
-
+        infos = {}
+        for agent in self.agents:
+            infos[agent] = {
+                'current_reward': rewards[agent],
+                'episode_reward_so_far': self.episode_rewards[agent],
+                'episode_length': self.episode_lengths[agent],
+                # Add any other metrics you want to track
+            }
+            
+            # Add termination status if needed
+            if terminations.get(agent, False):
+                infos[agent]['episode'] = {
+                    'reward': self.episode_rewards[agent],
+                    'length': self.episode_lengths[agent],
+                    'time_to_dock': self.steps,  # If relevant
+                }
         return observations, rewards, terminations, truncations, infos
 
 

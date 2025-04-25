@@ -371,13 +371,13 @@ if __name__ == "__main__":
             .training(
                 gamma=0.99,
                 # --- Try reducing LR and VF clipping ---
-                lr=5e-4,        # Reduced learning rate
-                # lr=[
-                #     [0, 5e-5],       # Start at iteration 0 with 5e-5 (or your current stable LR)
-                #     [1500, 1e-5],   # Linearly decay to 1e-5 by iteration 15000
-                #     [3600, 5e-7]    # Linearly decay to 5e-6 by iteration 36000 (adjust iters)
-                # ],
-                #vf_clip_param=20.0, # Significantly reduced VF clipping
+                #lr=1e-3,        # Reduced learning rate
+                lr=[
+                     [0, 5e-5],       # Start at iteration 0 with 5e-5 (or your current stable LR)
+                     [1500000, 1e-5],   # Linearly decay to 1e-5 by iteration 15000
+                     [3600000, 5e-7]    # Linearly decay to 5e-6 by iteration 36000 (adjust iters)
+                 ],
+                vf_clip_param=20.0, # Significantly reduced VF clipping
                 # ---
                 #kl_coeff=0.2,
                 clip_param=0.2,
@@ -387,7 +387,7 @@ if __name__ == "__main__":
                 num_epochs=8,
                 model={
                     "fcnet_hiddens": [1024, 1024],
-                    "fcnet_activation": "tanh",
+                    "fcnet_activation": "relu",
                     "vf_share_layers": False,
                     }
             )
@@ -535,6 +535,53 @@ if __name__ == "__main__":
                         logger.info(f"Learning Rate: {policy_metrics.get('default_optimizer_learning_rate', 'N/A')}")
             else:
                 logger.info("Learners not found")
+            if "env_runners" in result:
+                env_runners = result["env_runners"]
+
+                
+                # Look for various possible reward metric names
+                reward_metrics = ["episode_reward_mean", "episode_rewards_mean", "episode_reward", 
+                                "reward_mean", "mean_reward", "episode_mean_reward"]
+                
+                for metric in reward_metrics:
+                    if metric in env_runners:
+                        logger.info(f"{metric}: {env_runners[metric]}")
+                if "episode_reward_mean" in result:
+                    logger.info(f"Episode Reward Mean: {result['episode_reward_mean']}")
+                # Also check for rollout/trajectory metrics
+                rollout_metrics = ["rollout_reward_mean", "rollout_mean_reward", "rollout_rewards"]
+                for metric in rollout_metrics:
+                    if metric in env_runners:
+                        logger.info(f"{metric}: {env_runners[metric]}")
+
+            else:
+                logger.info("'env_runners' key not found in result")
+
+
+
+            if "sampler_results" in result:
+                logger.info("\n--- SAMPLER RESULTS ---")
+                sampler_results = result["sampler_results"]
+                if "episode_reward_mean" in sampler_results:
+                    logger.info(f"Episode Reward Mean: {sampler_results['episode_reward_mean']}")
+                if "episode_reward_max" in sampler_results:
+                    logger.info(f"Episode Reward Max: {sampler_results['episode_reward_max']}")
+                if "episode_reward_min" in sampler_results:
+                    logger.info(f"Episode Reward Min: {sampler_results['episode_reward_min']}")
+
+            # Also check for collected metrics/stats (might be in different locations in RLlib 2.x)
+            locations_to_check = [
+                result,
+                result.get("env_runners", {}),
+                result.get("sampler_results", {}),
+                result.get("evaluation", {})
+            ]
+
+            for location in locations_to_check:
+                if "episode_reward_mean" in location:
+                    logger.info(f"Found episode_reward_mean: {location['episode_reward_mean']}")
+                if "custom_metrics" in location:
+                    logger.info(f"Found custom_metrics: {location['custom_metrics']}")
             log_msg = (f"Iter: {i+1}/{TRAIN_ITERATIONS}, "
                        f"Ts(iter): {timesteps_this_iter}, Ts(total): {timesteps_total}, "
                        f"Reward ({reward_source}): {episode_reward_mean_log:.2f}, "
