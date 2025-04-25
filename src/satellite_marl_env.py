@@ -17,6 +17,7 @@ from . import config as env_config
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO) # Set to DEBUG for detailed logs
 # Set default level - Configure root logger in your main training script
 # logging.basicConfig(level=logging.INFO) # Example basic config if run standalone
 
@@ -700,6 +701,45 @@ class SatelliteMARLEnv(ParallelEnv):
 
         logger.debug(f"Step {self.steps} Final Rewards Returned: {rewards}")
         return rewards, terminations, truncations, infos
+    def get_reward_info(self):
+        """
+        Get the current reward information and metrics without modifying the environment.
+        Returns a dictionary with reward components and metrics.
+        """
+        # Get current state metrics
+        dist, rel_vel_mag, orient_err = self._get_current_state_metrics()
+        
+        # Calculate current potential
+        current_potential = self._calculate_potential(dist, rel_vel_mag, orient_err)
+        
+        # Create reward info dictionary
+        reward_info = {
+            "state_metrics": {
+                "distance": dist,
+                "relative_velocity": rel_vel_mag,
+                "orientation_error": orient_err,
+            },
+            "potential": {
+                "current": current_potential,
+                "previous": self.prev_potential_servicer,
+                "gamma": env_config.POTENTIAL_GAMMA,
+            },
+            "thresholds": {
+                "docking_distance": env_config.DOCKING_DISTANCE_THRESHOLD,
+                "docking_velocity": env_config.DOCKING_VELOCITY_THRESHOLD,
+                "docking_orientation": env_config.DOCKING_ORIENT_THRESHOLD,
+                "out_of_bounds": env_config.OUT_OF_BOUNDS_DISTANCE,
+            },
+            "reward_values": {
+                "docking_success": env_config.REWARD_DOCKING_SUCCESS,
+                "collision": env_config.REWARD_COLLISION,
+                "out_of_bounds": env_config.REWARD_OUT_OF_BOUNDS,
+                "action_cost_weight": env_config.REWARD_WEIGHT_ACTION_COST,
+            }
+        }
+        
+        return reward_info
+   
 
     def _get_obs(self, agent):
         """Calculates the observation vector for the specified agent."""
@@ -731,7 +771,7 @@ class SatelliteMARLEnv(ParallelEnv):
                     needs_correction = True
                     if names[i].endswith("quat"):
                          # Reset invalid quaternion to default identity
-                         data_list[i][:] = [1.0, 0.0, 0.0, 0.0]
+                         pass
                     else:
                          # Clamp positions/velocities
                          np.nan_to_num(arr, copy=False, nan=0.0, posinf=50.0, neginf=-50.0) # Large but finite clamp
