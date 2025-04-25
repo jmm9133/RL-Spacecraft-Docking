@@ -42,12 +42,12 @@ REWARD_WEIGHT_ACTION_COST = -0.00001 # Keep very small (negative weight)
 
 # --- Action Scaling (Low Baseline) ---
 ACTION_FORCE_SCALING = 5.0  # Low value for stability focus
-ACTION_TORQUE_SCALING = .10 # Low value for stability focus
+ACTION_TORQUE_SCALING = 1.0 # Low value for stability focus
 
 # --- Rewards (Base) ---
 REWARD_DOCKING_SUCCESS = 300.0 # High reward for success
 REWARD_COLLISION = -50.0    # Significant penalty for collision
-REWARD_OUT_OF_BOUNDS = -20.0  # Penalty for going too far (if implemented)
+REWARD_OUT_OF_BOUNDS = -200.0  # Penalty for going too far (if implemented)
 
 # --- Shaping Rewards (Simplified Baseline) ---
 # Moderate positive incentive for getting closer step-by-step

@@ -51,7 +51,7 @@ logging.getLogger("mujoco").setLevel(logging.WARNING) # Reduce MuJoCo INFO messa
 
 # Get logger for this script
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG) # Ensure this script's logger is also DEBUG
+logger.setLevel(logging.INFO) # Ensure this script's logger is also DEBUG
 
 logger.info(f"Logging setup complete. Log file: {log_file}")
 
@@ -468,9 +468,9 @@ if __name__ == "__main__":
     try:
         for i in range(TRAIN_ITERATIONS):
             iter_start_time = time.time()
-            logger.debug(f"--- Starting Training Iteration {i+1}/{TRAIN_ITERATIONS} ---")
+            logger.info(f"--- Starting Training Iteration {i+1}/{TRAIN_ITERATIONS} ---")
             result = algo.train()
-            logger.debug(f"--- Finished Training Iteration {i+1}/{TRAIN_ITERATIONS} ---")
+            logger.info(f"--- Finished Training Iteration {i+1}/{TRAIN_ITERATIONS} ---")
             results.append(result)
             iter_time = time.time() - iter_start_time
 
@@ -514,7 +514,27 @@ if __name__ == "__main__":
             if target_stats:
                  target_loss = target_stats.get("total_loss", float('nan'))
                  target_grad_norm = target_stats.get("gradients_default_optimizer_global_norm", float('nan'))
+            # After your result = algo.train() line, add:
+            logger.info(f"--- Training Stats for Iteration {i+1} ---")
 
+# Access key training metrics for each policy
+            if "learners" in result:
+                for policy_id in ["target", "servicer"]:  # Your specific policy IDs
+                    if policy_id in result["learners"]:
+                        policy_metrics = result["learners"][policy_id]
+            
+            # Log most important metrics
+                        logger.info(f"\n--- {policy_id.upper()} POLICY METRICS ---")
+                        logger.info(f"Total Loss: {policy_metrics.get('total_loss', 'N/A')}")
+                        logger.info(f"Policy Loss: {policy_metrics.get('policy_loss', 'N/A')}")
+                        logger.info(f"Value Function Loss: {policy_metrics.get('vf_loss', 'N/A')}")
+                        logger.info(f"Entropy: {policy_metrics.get('entropy', 'N/A')}")
+                        logger.info(f"KL Divergence: {policy_metrics.get('mean_kl_loss', 'N/A')}")
+                        logger.info(f"VF Explained Variance: {policy_metrics.get('vf_explained_var', 'N/A')}")
+                        logger.info(f"Gradient Norm: {policy_metrics.get('gradients_default_optimizer_global_norm', 'N/A')}")
+                        logger.info(f"Learning Rate: {policy_metrics.get('default_optimizer_learning_rate', 'N/A')}")
+            else:
+                logger.info("Learners not found")
             log_msg = (f"Iter: {i+1}/{TRAIN_ITERATIONS}, "
                        f"Ts(iter): {timesteps_this_iter}, Ts(total): {timesteps_total}, "
                        f"Reward ({reward_source}): {episode_reward_mean_log:.2f}, "
@@ -522,7 +542,7 @@ if __name__ == "__main__":
                        # Add gradient norms to summary
                        f"GradN(serv): {servicer_grad_norm:.3f}, GradN(targ): {target_grad_norm:.3f}, "
                        f"Time: {iter_time:.2f}s")
-            logger.info(log_msg)
+            #logger.info(log_msg)
 
             if (i + 1) % 10 == 0 or timesteps_this_iter == 0 or np.isnan(servicer_loss):
                  try:

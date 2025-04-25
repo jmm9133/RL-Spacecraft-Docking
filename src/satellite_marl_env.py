@@ -19,7 +19,7 @@ from . import config as env_config # Use alias
 # Ensure logger is configured in the main script (train_marl.py)
 # If run standalone, basicConfig might be needed here.
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.WARNING)
 # Conditional rendering setup
 try:
     import mediapy as media
