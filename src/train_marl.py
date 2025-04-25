@@ -1,4 +1,5 @@
-# (Keep imports and other setup as before)
+# src/train_marl.py
+
 import os
 import sys
 import time
@@ -13,22 +14,26 @@ from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
-from ray.rllib.utils.typing import AgentID
-from ray.rllib.models.torch.torch_action_dist import TorchDiagGaussian
-from ray.rllib.policy.sample_batch import SampleBatch
-import pprint # Import pprint for cleaner dictionary printing
+import pprint # Keep pprint for cleaner dictionary printing
+
+# --- Import plotting library ---
+import matplotlib.pyplot as plt
+# -----------------------------
 
 from .rllib_satellite_wrapper import RllibSatelliteEnv
 from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 250 # Increase this later if learning starts
+TRAIN_ITERATIONS = 250
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
-EVAL_EPISODES = 1
+EVAL_EPISODES = 3 # Increase slightly for more stable eval score
 EVAL_MAX_STEPS = env_config.MAX_STEPS_PER_EPISODE
+# --- Add Plot configuration ---
+PLOT_FILENAME = "training_progress.png"
+# ----------------------------
 
 # --- Setup Logging ---
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -40,18 +45,18 @@ for handler in logging.root.handlers[:]:
     handler.close()
 
 # Configure root logger
-logging.basicConfig( level=logging.DEBUG, # <--- Keep LEVEL DEBUG for detailed logs
-    format="%(asctime)s [%(name)s] [%(levelname)s] %(message)s",
+logging.basicConfig( level=logging.DEBUG,
+    format="%(asctime)s [%(name)s:%(lineno)d] [%(levelname)s] %(message)s",
     handlers=[ logging.FileHandler(log_file), logging.StreamHandler(sys.stdout) ] )
 
-# Set levels for libraries to avoid excessive noise (optional)
+# Set levels for libraries to avoid excessive noise
 logging.getLogger("ray").setLevel(logging.WARNING)
-logging.getLogger("ray.rllib").setLevel(logging.INFO) # Keep RLlib INFO unless debugging RLlib internals
-logging.getLogger("mujoco").setLevel(logging.WARNING) # Reduce MuJoCo INFO messages if desired
+logging.getLogger("ray.rllib").setLevel(logging.WARNING)
+logging.getLogger("mujoco").setLevel(logging.WARNING)
 
 # Get logger for this script
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO) # Ensure this script's logger is also DEBUG
+logger.setLevel(logging.INFO)
 
 logger.info(f"Logging setup complete. Log file: {log_file}")
 
@@ -59,8 +64,6 @@ logger.info(f"Logging setup complete. Log file: {log_file}")
 # --- RLlib Environment Creator ---
 def rllib_env_creator(config_dict):
     config_dict = config_dict or {}
-    # Ensure render_mode is not passed if not needed, or set appropriately
-    # config_dict["render_mode"] = None # Usually set by RLlib worker/evaluation config
     logger.debug(f"Creating RllibSatelliteEnv with config: {config_dict}")
     return RllibSatelliteEnv(config_dict)
 
@@ -68,30 +71,27 @@ register_env("satellite_marl", rllib_env_creator)
 logger.info("Registered RLlib environment 'satellite_marl'")
 
 # --- Helper Functions ---
+# (Keep run_evaluation_video function exactly as it was)
 def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episodes=1, max_steps=1000):
     logger.info("\n--- Running Evaluation & Recording Video ---")
     results_dir_abs = os.path.abspath(RESULTS_DIR)
-    # Use algo.iteration if available, otherwise a timestamp or default
-    iteration_str = f"iter_{algo.iteration}" if hasattr(algo, 'iteration') else "final"
+    iteration_str = f"iter_{algo.iteration}" if hasattr(algo, 'iteration') and algo.iteration is not None else "final"
     video_path = os.path.join(results_dir_abs, f"evaluation_video_{iteration_str}.mp4")
     os.makedirs(os.path.dirname(video_path), exist_ok=True)
     frames = []
     all_episode_rewards = {agent: [] for agent in env_config.POSSIBLE_AGENTS}
 
-    # --- FIX: Correct check for new API stack ---
-    # Check the actual properties set in the config
+    # Check the actual properties set in the config for API stack
     use_new_api_inference = (
         getattr(algo.config, "enable_env_runner_and_connector_v2", False) and
         getattr(algo.config, "enable_rl_module_and_learner", False)
     )
     logger.info(f"Evaluation using new API stack: {use_new_api_inference}")
-    # --- End FIX ---
 
     possible_agents = None # To store agent names
 
     try:
         logger.debug("Creating evaluation PettingZoo environment.")
-        # Pass evaluation-specific config if needed, e.g., different render mode
         eval_env_pettingzoo = pettingzoo_env_creator_func(render_mode="rgb_array")
         possible_agents = eval_env_pettingzoo.possible_agents # Get agent names
         logger.debug(f"Evaluation env created. Possible agents: {possible_agents}")
@@ -105,14 +105,21 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
         if use_new_api_inference:
             try:
                 if possible_agents:
-                    # get_module might need error handling if a module doesn't exist
                     rl_modules = {}
                     for agent_id in possible_agents:
                         try:
                             rl_modules[agent_id] = algo.get_module(agent_id)
-                        except ValueError: # Handle case where module might not exist for an agent
+                        except ValueError:
                              logger.warning(f"Could not get RLModule for agent '{agent_id}' during evaluation.")
-                    logger.info(f"Successfully retrieved RLModules for evaluation (Agents: {list(rl_modules.keys())}).")
+                        except Exception as mod_get_err: # Catch other potential errors getting module
+                            logger.warning(f"Error getting RLModule for agent '{agent_id}': {mod_get_err}")
+
+                    retrieved_modules = list(rl_modules.keys())
+                    if retrieved_modules:
+                        logger.info(f"Successfully retrieved RLModules for evaluation (Agents: {retrieved_modules}).")
+                    else:
+                        logger.warning("No RLModules were retrieved for evaluation.")
+
                 else:
                     logger.error("Cannot get RLModules: possible_agents list is empty.")
                     eval_env_pettingzoo.close()
@@ -124,12 +131,15 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
         else:
             logger.info("Using deprecated compute_single_action for evaluation.")
 
-        # (Keep the rest of the evaluation loop logic as before)
+        # Evaluation Loop
         for episode in range(num_episodes):
             logger.info(f"Starting Evaluation Episode: {episode + 1}/{num_episodes}")
             episode_rewards_this_ep = {agent: 0.0 for agent in possible_agents} if possible_agents else {}
             try:
                 obs, info = eval_env_pettingzoo.reset()
+                if not obs: # Check if obs is empty or None
+                     logger.error(f"Eval Ep {episode+1}: Environment reset returned empty/None observations. Stopping evaluation.")
+                     break
                 logger.debug(f"Eval Ep {episode+1}: Reset complete. Initial Obs keys: {list(obs.keys())}")
             except Exception as reset_err:
                 logger.exception(f"Eval Ep {episode+1}: Failed to reset environment: {reset_err}")
@@ -138,88 +148,102 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
             # Initial frame rendering
             try:
                 frame = eval_env_pettingzoo.render()
-                if frame is not None:
+                if frame is not None and isinstance(frame, np.ndarray):
                     frames.append(frame.astype(np.uint8))
                     logger.debug(f"Eval Ep {episode+1}: Rendered initial frame.")
-                else: logger.warning(f"Eval Ep {episode+1}: Initial render returned None.")
+                else: logger.warning(f"Eval Ep {episode+1}: Initial render returned None or invalid frame.")
             except Exception as render_err:
                 logger.warning(f"Eval Ep {episode+1}: Initial render failed: {render_err}")
 
             step = 0
-            while eval_env_pettingzoo.agents and step < max_steps:
+            terminated = False
+            truncated = False
+            # Loop while agents exist and max steps not reached
+            while eval_env_pettingzoo.agents and step < max_steps and not terminated and not truncated:
                 current_active_agents = eval_env_pettingzoo.agents[:]
                 actions = {}
                 active_obs = {}
                 valid_obs_found = False
                 for agent_id in current_active_agents:
                     if agent_id in obs and obs[agent_id] is not None:
-                        active_obs[agent_id] = obs[agent_id]
-                        valid_obs_found = True
+                        # Basic check for observation validity (e.g., shape, finite values)
+                        agent_obs_data = obs[agent_id]
+                        if isinstance(agent_obs_data, np.ndarray) and np.all(np.isfinite(agent_obs_data)):
+                            active_obs[agent_id] = agent_obs_data
+                            valid_obs_found = True
+                        else:
+                             logger.warning(f"Eval Ep {episode+1}, Step {step}: Invalid observation data for active agent '{agent_id}'. Type: {type(agent_obs_data)}, Data: {agent_obs_data}")
                     else:
                         logger.warning(f"Eval Ep {episode+1}, Step {step}: Observation missing or None for active agent '{agent_id}'.")
 
-                if not valid_obs_found:
+                if not valid_obs_found and current_active_agents:
                      logger.error(f"Eval Ep {episode+1}, Step {step}: No valid observations found for any active agents {current_active_agents}. Ending episode.")
-                     break
+                     break # Stop episode if no agent has a valid observation
 
+                # Action Computation
                 try:
                     if use_new_api_inference:
-                        batch_obs = {}
+                        # --- New API Stack Action Computation ---
+                        batch_tensor_obs = {}
                         for aid, o in active_obs.items():
                             np_obs = np.asarray(o, dtype=np.float32)
                             if not np.all(np.isfinite(np_obs)):
-                                logger.warning(f"Eval Ep {episode+1}, Step {step}: NaN/Inf in observation for agent {aid} before batching. Clamping.")
+                                logger.warning(f"Eval Ep {episode+1}, Step {step}: NaN/Inf in observation for agent {aid} just before batching. Clamping.")
                                 np_obs = np.nan_to_num(np_obs, nan=0.0, posinf=1e6, neginf=-1e6)
-                            batch_obs[aid] = np.expand_dims(np_obs, axis=0)
+                            batch_tensor_obs[aid] = torch.from_numpy(np.expand_dims(np_obs, axis=0)).float()
 
-                        if batch_obs:
-                            batch_tensor_obs = {aid: torch.from_numpy(ob).float() for aid, ob in batch_obs.items()}
-                        else:
-                             logger.warning(f"Eval Ep {episode+1}, Step {step}: No observations to batch. Cannot compute actions.")
-                             break
+                        if not batch_tensor_obs:
+                            logger.warning(f"Eval Ep {episode+1}, Step {step}: No observations to batch. Cannot compute actions.")
+                            break
 
                         forward_outs = {}
                         for agent_id, module in rl_modules.items():
-                             if agent_id in batch_tensor_obs:
-                                input_dict = {SampleBatch.OBS: batch_tensor_obs[agent_id]}
+                            if agent_id in batch_tensor_obs:
+                                input_dict = {"obs": batch_tensor_obs[agent_id]}
                                 try:
                                     with torch.no_grad():
-                                        forward_outs[agent_id] = module.forward_exploration(input_dict)
+                                         if hasattr(module, "forward_inference"):
+                                             forward_outs[agent_id] = module.forward_inference(input_dict)
+                                         else:
+                                             forward_outs[agent_id] = module.forward_exploration(input_dict, explore=False)
                                 except Exception as module_fwd_err:
-                                     logger.error(f"Eval Ep {episode+1}, Step {step}: Error during module forward pass for {agent_id}: {module_fwd_err}")
-                                     forward_outs[agent_id] = None
+                                    logger.error(f"Eval Ep {episode+1}, Step {step}: Error during module forward pass for {agent_id}: {module_fwd_err}")
+                                    forward_outs[agent_id] = None
 
                         for agent_id in current_active_agents:
-                             if agent_id not in active_obs: continue
-                             if agent_id in forward_outs and forward_outs[agent_id] is not None:
-                                action_output = forward_outs[agent_id].get(SampleBatch.ACTIONS)
-                                if action_output is not None:
-                                     action_tensor = action_output
-                                     if isinstance(action_tensor, torch.Tensor):
-                                         action_np = action_tensor.cpu().numpy()
-                                         if action_np.ndim > 1 and action_np.shape[0] == 1:
-                                              actions[agent_id] = np.squeeze(action_np, axis=0)
-                                         else:
-                                              actions[agent_id] = action_np
-                                     else:
-                                         logger.error(f"Eval Ep {episode+1}, Step {step}: Action output for {agent_id} is not a Tensor. Type: {type(action_tensor)}. Using random action.")
-                                         actions[agent_id] = action_spaces[agent_id].sample()
-                                else:
-                                     dist_inputs = forward_outs[agent_id].get('action_dist_inputs')
-                                     if dist_inputs is not None:
-                                          logger.debug(f"Eval Ep {episode+1}, Step {step}: Using 'action_dist_inputs' for {agent_id}.")
-                                          action_dist = TorchDiagGaussian(dist_inputs, None)
-                                          sampled_action_tensor = action_dist.deterministic_sample()
-                                          action_np = sampled_action_tensor.cpu().numpy()
-                                          actions[agent_id] = np.squeeze(action_np, axis=0)
-                                     else:
-                                          logger.error(f"Eval Ep {episode+1}, Step {step}: No '{SampleBatch.ACTIONS}' or 'action_dist_inputs' found in forward output for {agent_id}. Keys: {forward_outs[agent_id].keys()}. Using random action.")
-                                          actions[agent_id] = action_spaces[agent_id].sample()
-                             else:
-                                 logger.warning(f"Eval Ep {episode+1}, Step {step}: No forward output or failed forward pass for active agent {agent_id} with observation. Using random action.")
-                                 actions[agent_id] = action_spaces[agent_id].sample()
+                            if agent_id not in active_obs: continue
 
-                    else: # Old API
+                            if agent_id in forward_outs and forward_outs[agent_id] is not None:
+                                action_output = forward_outs[agent_id].get("actions", forward_outs[agent_id].get("action"))
+                                if action_output is not None and isinstance(action_output, torch.Tensor):
+                                    action_np = action_output.cpu().numpy()
+                                    if action_np.ndim > 1 and action_np.shape[0] == 1:
+                                        actions[agent_id] = np.squeeze(action_np, axis=0)
+                                    else:
+                                        actions[agent_id] = action_np
+                                else:
+                                    dist_inputs = forward_outs[agent_id].get('action_dist_inputs')
+                                    if dist_inputs is not None:
+                                        logger.debug(f"Eval Ep {episode+1}, Step {step}: Using 'action_dist_inputs' for {agent_id}.")
+                                        if dist_inputs.shape[-1] == 2 * env_config.ACTION_DIM_PER_AGENT:
+                                            action_dist = torch.distributions.Normal(dist_inputs[..., :env_config.ACTION_DIM_PER_AGENT], torch.exp(dist_inputs[..., env_config.ACTION_DIM_PER_AGENT:]))
+                                            sampled_action_tensor = action_dist.mean
+                                            action_np = sampled_action_tensor.cpu().numpy()
+                                            actions[agent_id] = np.squeeze(action_np, axis=0)
+                                        else:
+                                             logger.error(f"Eval Ep {episode+1}, Step {step}: Shape mismatch for action_dist_inputs for {agent_id}. Got shape {dist_inputs.shape}, expected last dim {2 * env_config.ACTION_DIM_PER_AGENT}. Using random action.")
+                                             actions[agent_id] = action_spaces[agent_id].sample()
+                                    else:
+                                        logger.error(f"Eval Ep {episode+1}, Step {step}: No 'actions'/'action' or 'action_dist_inputs' found in module output for {agent_id}. Keys: {forward_outs[agent_id].keys()}. Using random action.")
+                                        actions[agent_id] = action_spaces[agent_id].sample()
+                            else:
+                                logger.warning(f"Eval Ep {episode+1}, Step {step}: No forward output or failed forward pass for active agent {agent_id} with observation. Using random action.")
+                                if agent_id in action_spaces:
+                                     actions[agent_id] = action_spaces[agent_id].sample()
+                                else: logger.error(f"Cannot sample random action for {agent_id}, action space missing.")
+
+
+                    else: # --- Old API Stack Action Computation ---
                         for agent_id, agent_obs in active_obs.items():
                             try:
                                 if not np.all(np.isfinite(agent_obs)):
@@ -228,7 +252,8 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
                                 actions[agent_id] = algo.compute_single_action(observation=agent_obs, policy_id=agent_id, explore=False)
                             except Exception as csa_err:
                                 logger.error(f"Eval Ep {episode+1}, Step {step}: Error in compute_single_action for {agent_id}: {csa_err}. Using random action.")
-                                actions[agent_id] = action_spaces[agent_id].sample()
+                                if agent_id in action_spaces: actions[agent_id] = action_spaces[agent_id].sample()
+                                else: logger.error(f"Cannot sample random action for {agent_id}, action space missing.")
 
                 except Exception as action_comp_err:
                     logger.exception(f"Eval Ep {episode+1}, Step {step}: Unexpected error during action computation: {action_comp_err}")
@@ -236,26 +261,35 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
 
                 actions_to_step = {aid: act for aid, act in actions.items() if aid in eval_env_pettingzoo.agents}
                 if not actions_to_step and eval_env_pettingzoo.agents:
-                    logger.warning(f"Eval Ep {episode+1}, Step {step}: No actions computed for active agents {eval_env_pettingzoo.agents}. Stepping with empty dict.")
+                    logger.warning(f"Eval Ep {episode+1}, Step {step}: No actions computed/valid for active agents {eval_env_pettingzoo.agents}. Stepping with empty dict.")
 
                 try:
-                    obs, rewards, terminations, truncations, info = eval_env_pettingzoo.step(actions_to_step)
-                    if any(np.isnan(r) for r in rewards.values()):
-                         logger.warning(f"Eval Ep {episode+1}, Step {step}: NaN detected in rewards from env.step: {rewards}")
+                    next_obs, rewards, terminations_dict, truncations_dict, info = eval_env_pettingzoo.step(actions_to_step)
+                    obs = next_obs
+
+                    for r_agent, r_val in rewards.items():
+                        if not np.isfinite(r_val):
+                            logger.warning(f"Eval Ep {episode+1}, Step {step}: NaN/Inf detected in reward for agent {r_agent}: {r_val}. Setting to 0.")
+                            rewards[r_agent] = 0.0
+
+                    terminated = any(terminations_dict.values())
+                    truncated = any(truncations_dict.values())
+
                 except Exception as step_err:
                     logger.exception(f"Eval Ep {episode+1}, Step {step}: Error during environment step: {step_err}")
                     break
 
                 try:
                     frame = eval_env_pettingzoo.render()
-                    if frame is not None: frames.append(frame.astype(np.uint8))
+                    if frame is not None and isinstance(frame, np.ndarray): frames.append(frame.astype(np.uint8))
+                    else: logger.debug(f"Eval Ep {episode+1}, Step {step}: Render returned None or invalid frame.")
                 except Exception as render_err:
                     logger.warning(f"Eval Ep {episode+1}, Step {step}: Render failed: {render_err}")
 
                 for aid, r in rewards.items():
                     if aid in episode_rewards_this_ep:
-                        if np.isfinite(r): episode_rewards_this_ep[aid] += r
-                        else: logger.warning(f"Eval Ep {episode+1}, Step {step}: NaN/Inf reward {r} for agent {aid}. Not accumulating.")
+                        episode_rewards_this_ep[aid] += r
+
                 step += 1
 
             logger.info(f"Evaluation Episode {episode + 1} finished after {step} steps. Final Rewards: {episode_rewards_this_ep}")
@@ -269,17 +303,25 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
         logger.exception(f"Error during evaluation setup or run: {eval_setup_err}")
         if 'eval_env_pettingzoo' in locals() and hasattr(eval_env_pettingzoo, 'close'):
             try: eval_env_pettingzoo.close()
-            except: pass
+            except Exception as close_err: logger.error(f"Error closing eval env after failure: {close_err}")
 
     if possible_agents:
         avg_rewards = {}
         num_completed_episodes = 0
-        for agent in possible_agents:
-            rewards_list = all_episode_rewards.get(agent, [])
-            if agent == possible_agents[0]: num_completed_episodes = len(rewards_list)
-            if rewards_list: avg_rewards[agent] = np.mean(rewards_list)
-            else: avg_rewards[agent] = float('nan')
-        logger.info(f"Average Evaluation Rewards over {num_completed_episodes} completed episodes: {avg_rewards}")
+        if possible_agents and possible_agents[0] in all_episode_rewards:
+             num_completed_episodes = len(all_episode_rewards[possible_agents[0]])
+
+        if num_completed_episodes > 0:
+            for agent in possible_agents:
+                rewards_list = all_episode_rewards.get(agent, [])
+                if len(rewards_list) == num_completed_episodes:
+                    avg_rewards[agent] = np.mean(rewards_list)
+                else:
+                    logger.warning(f"Inconsistent number of rewards recorded for agent {agent} ({len(rewards_list)}) vs expected ({num_completed_episodes}). Skipping avg calc for this agent.")
+                    avg_rewards[agent] = float('nan')
+            logger.info(f"Average Evaluation Rewards over {num_completed_episodes} completed episodes: {avg_rewards}")
+        else:
+             logger.warning("No completed evaluation episodes recorded. Cannot calculate average rewards.")
     else:
         logger.warning("Could not calculate average evaluation rewards (no possible_agents found).")
 
@@ -290,27 +332,25 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
             logger.info("Evaluation video saved successfully.")
         except Exception as video_err: logger.error(f"Failed to save evaluation video: {video_err}")
     else: logger.warning("No frames recorded during evaluation, video will not be saved.")
+# --- End of run_evaluation_video ---
 
 
 # --- Main Training Script ---
 if __name__ == "__main__":
 
     logger.info("--- Starting MARL Training Script ---")
-    logger.info(f"Environment Config: {env_config.__name__}")
-    logger.info(f"RLlib PPO Algorithm")
+    logger.info(f"Environment Config Module: {env_config.__name__}")
+    logger.info(f"RL Algorithm: PPO")
     logger.info(f"Training Iterations: {TRAIN_ITERATIONS}")
     logger.info(f"Results Directory: {RESULTS_DIR}")
+    logger.info(f"Max Steps per Episode: {env_config.MAX_STEPS_PER_EPISODE}")
 
-    # --- REMINDER: Address Disk Space ---
-    logger.warning("Reminder: Check '/tmp/ray' disk usage. Clean or configure Ray's temp directory if it's over 95% full.")
-    # ------------------------------------
+    logger.warning("Reminder: Check '/tmp' or Ray's configured temp directory disk usage. Clean if necessary.")
 
     ray_init_success = False
     try:
         cpu_count = os.cpu_count() or 1
         logger.info(f"Detected {cpu_count} CPUs.")
-        # Example: Configure temp dir if needed
-        # ray.init(num_cpus=cpu_count, local_mode=False, logging_level=logging.WARNING, ignore_reinit_error=True, _temp_dir="/path/with/more/space/ray_spill")
         ray.init(num_cpus=cpu_count, local_mode=False, logging_level=logging.WARNING, ignore_reinit_error=True)
         logger.info("Ray initialized successfully.")
         ray_init_success = True
@@ -318,9 +358,9 @@ if __name__ == "__main__":
          logger.exception(f"Ray initialization failed: {ray_init_err}")
          sys.exit(1)
 
-    logger.info("Creating temporary environment to get action/observation spaces...")
     policies = None
     try:
+        logger.info("Creating temporary environment to get action/observation spaces...")
         temp_env_rllib = rllib_env_creator({})
         policies = {
             aid: PolicySpec(
@@ -348,11 +388,10 @@ if __name__ == "__main__":
     try:
         num_workers = max(1, (cpu_count or 4) - 2)
         logger.info(f"Using {num_workers} environment runners (workers).")
-        rollout_fragment_length_estimate = 2000
 
-        # --- FIX: Set train_batch_size exactly equal to samples collected per iter ---
+        #rollout_fragment_length_estimate = 4000
+        rollout_fragment_length_estimate = 9000
         effective_train_batch_size = num_workers * rollout_fragment_length_estimate
-        # --- End FIX ---
 
         logger.info(f"Setting rollout_fragment_length: {rollout_fragment_length_estimate}")
         logger.info(f"Setting train_batch_size: {effective_train_batch_size} (= num_workers * rollout_fragment_length)")
@@ -366,47 +405,43 @@ if __name__ == "__main__":
                 rollout_fragment_length=rollout_fragment_length_estimate,
                 observation_filter="MeanStdFilter",
                 num_envs_per_env_runner=1,
-                num_cpus_per_env_runner=1,
             )
             .training(
-                gamma=0.99,
-                # --- Try reducing LR and VF clipping ---
-                #lr=1e-3,        # Reduced learning rate
-                lr=[
-                     [0, 5e-5],       # Start at iteration 0 with 5e-5 (or your current stable LR)
-                     [1500000, 1e-5],   # Linearly decay to 1e-5 by iteration 15000
-                     [3600000, 5e-7]    # Linearly decay to 5e-6 by iteration 36000 (adjust iters)
-                 ],
-                vf_clip_param=20.0, # Significantly reduced VF clipping
-                # ---
-                #kl_coeff=0.2,
-                clip_param=0.2,
-                entropy_coeff=0.0005,
-                grad_clip=0.5,
+                gamma=env_config.POTENTIAL_GAMMA,
+                lambda_=0.95,
+                lr=5e-5,
                 train_batch_size=effective_train_batch_size,
-                num_epochs=8,
                 model={
-                    "fcnet_hiddens": [1024, 1024],
+                    "fcnet_hiddens": [512, 512],
                     "fcnet_activation": "relu",
                     "vf_share_layers": False,
-                    }
+                },
+                optimizer={},
+                num_epochs=10, # Renamed from num_sgd_iter
+                clip_param=0.2,
+                vf_clip_param=10.0,
+                entropy_coeff=0.001,
+                kl_coeff=0.2,
+                kl_target=0.01,
+                grad_clip=0.5,
+                use_gae=True,
             )
             .multi_agent(
                 policies=policies,
                 policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
             )
             .resources(
-                num_gpus=1,
-                )
+                num_gpus=1 if torch.cuda.is_available() else 0,
+            )
             .debugging(
-                log_level="INFO",
-                seed=369
-                )
+                log_level="WARN",
+                seed=np.random.randint(0, 10000),
+            )
             .fault_tolerance(
                  restart_failed_env_runners=True
-                 )
+            )
             .evaluation(
-                evaluation_interval=10,
+                evaluation_interval=CHECKPOINT_FREQ,
                 evaluation_duration=EVAL_EPISODES,
                 evaluation_duration_unit="episodes",
                 evaluation_num_env_runners=1,
@@ -414,39 +449,39 @@ if __name__ == "__main__":
                 evaluation_config = PPOConfig.overrides(
                      explore=False,
                      observation_filter="MeanStdFilter",
-                     #observation_filter="NoFilter",
-                     num_cpus_per_env_runner=1
                 )
+            )
+            .reporting(
+                 # metrics_smoothing_episodes=10, # REMOVED THIS LINE - Caused TypeError
+                 # Other reporting options can go here if needed
+                 min_sample_timesteps_per_iteration=effective_train_batch_size # Ensure enough samples are collected
             )
             .api_stack(
                 enable_rl_module_and_learner=True,
+                enable_env_runner_and_connector_v2=True,
             )
         )
         logger.info("PPO configuration object created.")
 
         logger.info("Building Algorithm...")
-        algo = config.build_algo() # Use the new method name
+        algo = config.build()
         logger.info("Algorithm built successfully.")
 
-        # Log policy/module class name for verification
         policy_class_name = "Unavailable"
         try:
              first_policy_id = list(policies.keys())[0]
-             # --- FIX: Correct check for new API ---
              if getattr(algo.config, "enable_rl_module_and_learner", False):
                  try:
                      module_instance = algo.get_module(first_policy_id)
                      policy_class_name = module_instance.__class__.__name__
                  except Exception as module_get_err:
                      logger.warning(f"Could not get module instance for '{first_policy_id}': {module_get_err}")
-             # --- End FIX ---
-             else: # Fallback for old API if needed
+             else:
                  if algo.workers and algo.workers.local_worker():
                       policy_class_name = algo.workers.local_worker().get_policy(first_policy_id).__class__.__name__
              logger.info(f"Using Policy/Module Class: {policy_class_name}")
         except Exception as policy_log_err:
              logger.warning(f"Could not retrieve policy/module class name: {policy_log_err}")
-
 
     except Exception as e:
         logger.exception("Failed during RLlib configuration or algorithm build. Exiting.")
@@ -456,178 +491,139 @@ if __name__ == "__main__":
         if ray_init_success: ray.shutdown()
         sys.exit(1)
 
+    # --- Data Storage for Plotting ---
+    iterations_list = []
+    timesteps_list = []
+    train_rewards_mean = []
+    train_episode_lengths_mean = []
+    eval_rewards_mean = []
+    # --------------------------------
+
     logger.info(f"\n--- Starting Training for {TRAIN_ITERATIONS} iterations ---")
-    results = []
     start_time = time.time()
     checkpoint_path = None
     last_checkpoint_iter = -1
     training_successful = False
-    i = -1 # Initialize iteration counter
-    last_total_steps = 0 # Track steps for Ts(iter) calculation
+    i = -1
+    last_total_steps = 0
 
     try:
         for i in range(TRAIN_ITERATIONS):
             iter_start_time = time.time()
             logger.info(f"--- Starting Training Iteration {i+1}/{TRAIN_ITERATIONS} ---")
+
             result = algo.train()
+            # --- I ADDED THIS TEMPORARILY ---
+            # logger.info("--- Full Result Dictionary Structure (Iteration {}) ---".format(i+1))
+            # logger.info(pprint.pformat(result, indent=2, width=120))
+            # logger.info("--- End Full Result Dictionary ---")
+            # ----------------------------
             logger.info(f"--- Finished Training Iteration {i+1}/{TRAIN_ITERATIONS} ---")
-            results.append(result)
             iter_time = time.time() - iter_start_time
 
-            # --- Extract and Log Key Metrics ---
-            eval_metrics = result.get("evaluation", {})
-            episode_reward_mean_eval = eval_metrics.get("episode_reward_mean", float('nan'))
-            sampler_results = result.get("sampler_results", result.get("env_runners", {}))
-            episode_reward_mean_sample = sampler_results.get("episode_reward_mean", float('nan'))
-
-            if np.isfinite(episode_reward_mean_eval):
-                episode_reward_mean_log = episode_reward_mean_eval
-                reward_source = "Eval"
-            elif np.isfinite(episode_reward_mean_sample):
-                episode_reward_mean_log = episode_reward_mean_sample
-                reward_source = "Sample"
-            else:
-                episode_reward_mean_log = float('nan')
-                reward_source = "None"
-
-            # --- FIX: Calculate Ts(iter) correctly ---
-            timesteps_total = result.get("num_env_steps_sampled_lifetime", result.get("timesteps_total", 0))
+            # --- Extract and Log Key Performance Metrics ---
+            timesteps_total = result.get("timesteps_total", result.get("num_env_steps_sampled_lifetime", 0))
             timesteps_this_iter = timesteps_total - last_total_steps
             last_total_steps = timesteps_total
-            # --- End FIX ---
 
-            # Extract learner losses & gradient norms
-            learner_info = result.get("info", {}).get("learner", {})
-            servicer_loss, target_loss = float('nan'), float('nan')
-            servicer_grad_norm, target_grad_norm = float('nan'), float('nan')
+            sampler_results = result.get("sampler_results", result.get("env_runners", {}))
+            ep_reward_mean_sample = sampler_results.get("episode_reward_mean", float('nan'))
+            ep_len_mean_sample = sampler_results.get("episode_len_mean", float('nan'))
 
-            all_module_stats = learner_info.get("__all_modules__", {})
+            eval_metrics = result.get("evaluation", {})
+            ep_reward_mean_eval = eval_metrics.get("episode_reward_mean", float('nan'))
 
-            # Look for stats under the specific agent ID first, then under __all_modules__
-            servicer_stats = learner_info.get(env_config.SERVICER_AGENT_ID, all_module_stats.get(env_config.SERVICER_AGENT_ID, {}))
-            target_stats = learner_info.get(env_config.TARGET_AGENT_ID, all_module_stats.get(env_config.TARGET_AGENT_ID, {}))
+            # --- Append data for plotting ---
+            iterations_list.append(i + 1)
+            timesteps_list.append(timesteps_total)
+            train_rewards_mean.append(ep_reward_mean_sample)
+            train_episode_lengths_mean.append(ep_len_mean_sample)
+            eval_rewards_mean.append(ep_reward_mean_eval)
+            # --------------------------------
 
-            if servicer_stats:
-                 servicer_loss = servicer_stats.get("total_loss", float('nan'))
-                 servicer_grad_norm = servicer_stats.get("gradients_default_optimizer_global_norm", float('nan')) # Adjust key if optimizer name differs
+            logger.info(f"Iter: {i+1}, Timesteps: {timesteps_total} (+{timesteps_this_iter})")
+            logger.info(f"  Episode Reward Mean (Train): {ep_reward_mean_sample:.3f}")
+            logger.info(f"  Episode Length Mean (Train): {ep_len_mean_sample:.1f}")
+            if np.isfinite(ep_reward_mean_eval):
+                 logger.info(f"  Episode Reward Mean (Eval):  {ep_reward_mean_eval:.3f}")
+            logger.info(f"  Iteration Time: {iter_time:.2f}s")
 
-            if target_stats:
-                 target_loss = target_stats.get("total_loss", float('nan'))
-                 target_grad_norm = target_stats.get("gradients_default_optimizer_global_norm", float('nan'))
-            # After your result = algo.train() line, add:
+             # --- Log detailed policy/learner stats ---
+            # Corrected path based on pprint output
             logger.info(f"--- Training Stats for Iteration {i+1} ---")
+            learner_stats_all_policies = result.get("learners", {}) # Get the 'learners' dict
+            if learner_stats_all_policies:
+                for policy_id in policies.keys(): # Iterate through expected policy IDs ('servicer', 'target')
+                    policy_stats = learner_stats_all_policies.get(policy_id) # Get stats dict for this specific policy_id
+                    if policy_stats and isinstance(policy_stats, dict): # Check if stats exist and is a dictionary
+                        logger.info(f"\n--- {policy_id.upper()} POLICY/MODULE METRICS ---")
+                        # Log common metrics, using .get() for safety
+                        logger.info(f"Total Loss: {policy_stats.get('total_loss', 'N/A')}")
+                        logger.info(f"Policy Loss: {policy_stats.get('policy_loss', 'N/A')}")
+                        logger.info(f"Value Function Loss: {policy_stats.get('vf_loss', 'N/A')}")
+                        logger.info(f"Entropy: {policy_stats.get('entropy', 'N/A')}")
+                        logger.info(f"KL Divergence: {policy_stats.get('mean_kl_loss', policy_stats.get('policy_kl', 'N/A'))}")
+                        logger.info(f"VF Explained Variance: {policy_stats.get('vf_explained_var', 'N/A')}")
+                        # Find grad norm key (might vary slightly)
+                        grad_norm_key = next((k for k in policy_stats if 'grad_norm' in k.lower() or 'gradients' in k.lower()), None)
+                        logger.info(f"Gradient Norm: {policy_stats.get(grad_norm_key, 'N/A')}")
+                        # Find LR key (might vary slightly)
+                        lr_key = next((k for k in policy_stats if 'lr' in k.lower() or 'learning_rate' in k.lower()), None)
+                        logger.info(f"Learning Rate: {policy_stats.get(lr_key, 'N/A')}")
+                    else:
+                        # Log if stats for a specific policy_id are missing or not a dict
+                        logger.warning(f"No valid detailed stats found for policy '{policy_id}' under 'learners' key.")
+                        # Optionally log the content if it's not None but not a dict
+                        # if policy_stats is not None:
+                        #    logger.debug(f"Content under 'learners' -> '{policy_id}': {policy_stats}")
 
-# Access key training metrics for each policy
-            if "learners" in result:
-                for policy_id in ["target", "servicer"]:  # Your specific policy IDs
-                    if policy_id in result["learners"]:
-                        policy_metrics = result["learners"][policy_id]
-            
-            # Log most important metrics
-                        logger.info(f"\n--- {policy_id.upper()} POLICY METRICS ---")
-                        logger.info(f"Total Loss: {policy_metrics.get('total_loss', 'N/A')}")
-                        logger.info(f"Policy Loss: {policy_metrics.get('policy_loss', 'N/A')}")
-                        logger.info(f"Value Function Loss: {policy_metrics.get('vf_loss', 'N/A')}")
-                        logger.info(f"Entropy: {policy_metrics.get('entropy', 'N/A')}")
-                        logger.info(f"KL Divergence: {policy_metrics.get('mean_kl_loss', 'N/A')}")
-                        logger.info(f"VF Explained Variance: {policy_metrics.get('vf_explained_var', 'N/A')}")
-                        logger.info(f"Gradient Norm: {policy_metrics.get('gradients_default_optimizer_global_norm', 'N/A')}")
-                        logger.info(f"Learning Rate: {policy_metrics.get('default_optimizer_learning_rate', 'N/A')}")
-            else:
-                logger.info("Learners not found")
-            if "env_runners" in result:
-                env_runners = result["env_runners"]
-
-                
-                # Look for various possible reward metric names
-                reward_metrics = ["episode_reward_mean", "episode_rewards_mean", "episode_reward", 
-                                "reward_mean", "mean_reward", "episode_mean_reward"]
-                
-                for metric in reward_metrics:
-                    if metric in env_runners:
-                        logger.info(f"{metric}: {env_runners[metric]}")
-                if "episode_reward_mean" in result:
-                    logger.info(f"Episode Reward Mean: {result['episode_reward_mean']}")
-                # Also check for rollout/trajectory metrics
-                rollout_metrics = ["rollout_reward_mean", "rollout_mean_reward", "rollout_rewards"]
-                for metric in rollout_metrics:
-                    if metric in env_runners:
-                        logger.info(f"{metric}: {env_runners[metric]}")
+                # Also log __all_modules__ stats if they exist separately (can contain aggregated info)
+                all_modules_stats = learner_stats_all_policies.get("__all_modules__")
+                if all_modules_stats and isinstance(all_modules_stats, dict):
+                    logger.info(f"\n--- __ALL_MODULES__ AGGREGATED METRICS ---")
+                    logger.info(f"Total Trainable Parameters: {all_modules_stats.get('num_trainable_parameters', 'N/A')}")
+                    logger.info(f"Total Module Steps Trained: {all_modules_stats.get('num_module_steps_trained', 'N/A')}")
+                    # Add other relevant aggregated stats found in __all_modules__ if needed
 
             else:
-                logger.info("'env_runners' key not found in result")
+                logger.warning("Learner stats dictionary ('learners') not found in result.")
+            # --- End corrected stats logging section ---
 
 
+            # --- Check for training stagnation or failure ---
+            # total_loss = learner_info.get("__all_modules__",{}).get("total_loss", 0.0)
+            # if np.isnan(total_loss) and i > 0:
+            #      logger.error(f"NaN detected in total loss at iteration {i+1}. Stopping training.")
+            #      logger.error(f"Detailed Learner Info: {pprint.pformat(learner_info)}")
+            #      break
 
-            if "sampler_results" in result:
-                logger.info("\n--- SAMPLER RESULTS ---")
-                sampler_results = result["sampler_results"]
-                if "episode_reward_mean" in sampler_results:
-                    logger.info(f"Episode Reward Mean: {sampler_results['episode_reward_mean']}")
-                if "episode_reward_max" in sampler_results:
-                    logger.info(f"Episode Reward Max: {sampler_results['episode_reward_max']}")
-                if "episode_reward_min" in sampler_results:
-                    logger.info(f"Episode Reward Min: {sampler_results['episode_reward_min']}")
-
-            # Also check for collected metrics/stats (might be in different locations in RLlib 2.x)
-            locations_to_check = [
-                result,
-                result.get("env_runners", {}),
-                result.get("sampler_results", {}),
-                result.get("evaluation", {})
-            ]
-
-            for location in locations_to_check:
-                if "episode_reward_mean" in location:
-                    logger.info(f"Found episode_reward_mean: {location['episode_reward_mean']}")
-                if "custom_metrics" in location:
-                    logger.info(f"Found custom_metrics: {location['custom_metrics']}")
-            log_msg = (f"Iter: {i+1}/{TRAIN_ITERATIONS}, "
-                       f"Ts(iter): {timesteps_this_iter}, Ts(total): {timesteps_total}, "
-                       f"Reward ({reward_source}): {episode_reward_mean_log:.2f}, "
-                       f"Loss(serv): {servicer_loss:.3f}, Loss(targ): {target_loss:.3f}, "
-                       # Add gradient norms to summary
-                       f"GradN(serv): {servicer_grad_norm:.3f}, GradN(targ): {target_grad_norm:.3f}, "
-                       f"Time: {iter_time:.2f}s")
-            #logger.info(log_msg)
-
-            if (i + 1) % 10 == 0 or timesteps_this_iter == 0 or np.isnan(servicer_loss):
-                 try:
-                      logger.debug(f"Full result dict at iter {i+1}:\n{pprint.pformat(result, indent=2, width=120)}")
-                 except Exception as pp_err:
-                      logger.error(f"Could not pretty-print result dict: {pp_err}")
-                      logger.debug(f"Raw result dict at iter {i+1}: {result}")
-
-            # --- FIX: Termination Check based on DETAILED learner info ---
-            # Check if stats were found and if they are NaN
-            servicer_loss_is_nan = np.isnan(servicer_loss) if servicer_stats else True # Treat missing stats as NaN for check
-            target_loss_is_nan = np.isnan(target_loss) if target_stats else True
-
-            #if servicer_loss_is_nan and target_loss_is_nan and i > 0: # Allow first iter
-            #     logger.error(f"NaN detected in detailed losses for both agents at iteration {i+1}. Stopping training.")
-            #     logger.error(f"Detailed Learner Info: {learner_info}") # Log the source dict
-            #     break
-            # --- End FIX ---
-
-            if i > 5 and timesteps_this_iter == 0: # Check for zero steps processed
-                 prev_total_ts = results[-2].get("num_env_steps_sampled_lifetime", results[-2].get("timesteps_total", 0)) if len(results) > 1 else 0
+            if i > 5 and timesteps_this_iter <= 0:
+                 prev_total_ts = timesteps_list[-2] if len(timesteps_list) > 1 else 0
                  if timesteps_total <= prev_total_ts:
-                     logger.error(f"Training stalled: Total timesteps did not increase between iteration {i} ({prev_total_ts}) and {i+1} ({timesteps_total}). Stopping training.")
+                     logger.error(f"Training stalled: Total timesteps ({timesteps_total}) did not increase from previous iteration ({prev_total_ts}). Stopping training.")
                      break
 
-            # Checkpoint saving
+            # --- Checkpoint Saving ---
             if (i + 1) % CHECKPOINT_FREQ == 0:
                 try:
                     logger.info(f"Attempting to save checkpoint at iteration {i+1}...")
-                    checkpoint_result = algo.save()
-                    if checkpoint_result.checkpoint and checkpoint_result.checkpoint.path:
+                    checkpoint_result = algo.save(checkpoint_dir=RESULTS_DIR_ABS)
+                    if checkpoint_result and checkpoint_result.checkpoint and checkpoint_result.checkpoint.path:
                          checkpoint_path = str(checkpoint_result.checkpoint.path)
                          last_checkpoint_iter = i
                          logger.info(f"Checkpoint saved successfully at: {checkpoint_path}")
                     else:
-                         logger.error(f"Checkpoint saving reported success, but no valid path found in result: {checkpoint_result}")
+                         ckpt_path_alt = checkpoint_result.get("checkpoint_path") if isinstance(checkpoint_result, dict) else None
+                         if ckpt_path_alt:
+                              checkpoint_path = ckpt_path_alt
+                              last_checkpoint_iter = i
+                              logger.info(f"Checkpoint saved successfully (alt path): {checkpoint_path}")
+                         else:
+                              logger.error(f"Checkpoint saving reported success, but no valid path found in result: {checkpoint_result}")
                 except Exception as save_err:
                     logger.exception(f"Failed to save checkpoint at iteration {i+1}: {save_err}")
+
+        # End of training loop
 
         if i == TRAIN_ITERATIONS - 1:
              training_successful = True
@@ -638,18 +634,28 @@ if __name__ == "__main__":
     except Exception as train_err:
         logger.exception(f"Error during training loop at iteration {i+1}: {train_err}")
     finally:
+        # --- Post-Training Actions ---
         total_training_time = time.time() - start_time
         logger.info(f"\n--- Training Loop Finished ---")
-        logger.info(f"Total Training Time: {total_training_time:.2f} seconds")
+        logger.info(f"Total Training Time: {total_training_time:.2f} seconds ({total_training_time/3600:.2f} hours)")
         logger.info(f"Last completed iteration: {i+1 if i>=0 else 'N/A'}")
 
+        # --- Save Final Checkpoint ---
         if algo:
-            if training_successful or (checkpoint_path is None) or (i > last_checkpoint_iter and i >= 0):
+            if training_successful or (i > last_checkpoint_iter and i >= 0):
                  try:
                      logger.info("Attempting to save final checkpoint...")
-                     final_checkpoint_result = algo.save()
-                     if final_checkpoint_result.checkpoint and final_checkpoint_result.checkpoint.path:
-                          checkpoint_path = str(final_checkpoint_result.checkpoint.path)
+                     final_checkpoint_result = algo.save(checkpoint_dir=RESULTS_DIR_ABS)
+                     final_ckpt_path = None
+                     if hasattr(final_checkpoint_result, 'checkpoint') and final_checkpoint_result.checkpoint and hasattr(final_checkpoint_result.checkpoint, 'path'):
+                          final_ckpt_path = str(final_checkpoint_result.checkpoint.path)
+                     elif isinstance(final_checkpoint_result, dict) and "checkpoint_path" in final_checkpoint_result:
+                           final_ckpt_path = final_checkpoint_result["checkpoint_path"]
+                     elif isinstance(final_checkpoint_result, str):
+                          final_ckpt_path = final_checkpoint_result
+
+                     if final_ckpt_path:
+                          checkpoint_path = final_ckpt_path
                           logger.info(f"Final checkpoint saved successfully at: {checkpoint_path}")
                      else:
                            logger.error(f"Final checkpoint saving reported success, but no valid path found in result: {final_checkpoint_result}")
@@ -660,30 +666,93 @@ if __name__ == "__main__":
             else:
                  logger.warning("No checkpoint was saved during training.")
 
-            if (training_successful or i >= 0 or checkpoint_path):
+            # --- Generate Plots ---
+            if iterations_list:
+                 plot_save_path = os.path.join(RESULTS_DIR_ABS, PLOT_FILENAME)
+                 logger.info(f"Generating training progress plots to: {plot_save_path}")
+                 try:
+                      eval_data_exists = any(np.isfinite(val) for val in eval_rewards_mean if val is not None)
+                      num_plots = 2 + (1 if eval_data_exists else 0)
+
+                      fig, axes = plt.subplots(num_plots, 1, figsize=(10, 5 * num_plots), sharex=True)
+                      if num_plots == 1: axes = [axes]
+
+                      plot_idx = 0
+
+                      axes[plot_idx].plot(timesteps_list, train_rewards_mean, label="Episode Reward Mean (Train)", marker='.', linestyle='-', markersize=4, alpha=0.8)
+                      axes[plot_idx].set_ylabel("Episode Reward Mean")
+                      axes[plot_idx].set_title("Training Rewards")
+                      axes[plot_idx].grid(True, linestyle='--', alpha=0.6)
+                      axes[plot_idx].legend()
+                      plot_idx += 1
+
+                      axes[plot_idx].plot(timesteps_list, train_episode_lengths_mean, label="Episode Length Mean (Train)", marker='.', linestyle='-', markersize=4, color='orange', alpha=0.8)
+                      axes[plot_idx].set_ylabel("Episode Length")
+                      axes[plot_idx].set_title("Episode Length")
+                      axes[plot_idx].grid(True, linestyle='--', alpha=0.6)
+                      axes[plot_idx].legend()
+                      plot_idx += 1
+
+                      if eval_data_exists:
+                            valid_eval_indices = [idx for idx, val in enumerate(eval_rewards_mean) if val is not None and np.isfinite(val)]
+                            if valid_eval_indices:
+                                eval_timesteps = [timesteps_list[idx] for idx in valid_eval_indices]
+                                eval_rewards_plot = [eval_rewards_mean[idx] for idx in valid_eval_indices]
+                                axes[plot_idx].plot(eval_timesteps, eval_rewards_plot, label="Episode Reward Mean (Eval)", marker='o', linestyle='--', markersize=5, color='green')
+                                axes[plot_idx].set_ylabel("Episode Reward Mean")
+                                axes[plot_idx].set_title("Evaluation Rewards")
+                                axes[plot_idx].grid(True, linestyle='--', alpha=0.6)
+                                axes[plot_idx].legend()
+                                plot_idx += 1
+                            else:
+                                 logger.info("No finite evaluation reward data found for plotting.")
+
+
+                      axes[-1].set_xlabel("Total Timesteps")
+                      fig.suptitle("Training Progress", fontsize=16)
+                      fig.tight_layout(rect=[0, 0.03, 1, 0.97])
+
+                      plt.savefig(plot_save_path)
+                      logger.info("Plots saved successfully.")
+                      plt.close(fig)
+                 except Exception as plot_err:
+                      logger.exception(f"Failed to generate plots: {plot_err}")
+            else:
+                 logger.warning("No data collected (iterations_list is empty), skipping plot generation.")
+            # --------------------
+
+            # --- Run Final Evaluation ---
+            if (training_successful or i >= 0) and checkpoint_path:
                 try:
-                    logger.info("Running final evaluation...")
+                    logger.info(f"Restoring algorithm from checkpoint: {checkpoint_path}")
+                    algo.restore(checkpoint_path)
+                    logger.info("Algorithm restored. Running final evaluation...")
                     run_evaluation_video(algo, satellite_pettingzoo_creator, num_episodes=EVAL_EPISODES, max_steps=EVAL_MAX_STEPS)
                 except Exception as eval_err:
                     logger.exception(f"Final evaluation failed: {eval_err}")
             else:
-                logger.warning("Skipping final evaluation video (no checkpoint saved or training did not run).")
+                logger.warning("Skipping final evaluation video (training incomplete or no checkpoint).")
 
+            # --- Stop the Algorithm ---
             logger.info("Stopping RLlib Algorithm...")
             try:
                 algo.stop()
                 logger.info("Algorithm stopped.")
             except Exception as stop_err: logger.error(f"Error stopping algorithm: {stop_err}")
-        else: logger.warning("Algorithm object not available, cannot save or evaluate.")
+        else:
+            logger.warning("Algorithm object not available, cannot save checkpoint, plot, or evaluate.")
 
+        # --- Shutdown Ray ---
         if ray_init_success:
             logger.info("Shutting down Ray...")
             ray.shutdown()
             logger.info("Ray shut down.")
 
         logger.info("Script finished.")
+        # Close logging handlers
         for handler in logging.root.handlers[:]:
             try:
+                handler.flush()
                 handler.close()
                 logging.root.removeHandler(handler)
             except Exception as log_close_err: print(f"Error closing logging handler: {log_close_err}")
