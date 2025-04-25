@@ -25,7 +25,7 @@ from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 250
+TRAIN_ITERATIONS = 100
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
@@ -333,7 +333,39 @@ def run_evaluation_video(algo: Algorithm, pettingzoo_env_creator_func, num_episo
         except Exception as video_err: logger.error(f"Failed to save evaluation video: {video_err}")
     else: logger.warning("No frames recorded during evaluation, video will not be saved.")
 # --- End of run_evaluation_video ---
-
+#-----LOG REWARDS FUNCTION-----
+def log_reward_info(env, step, rewards):
+    """
+    Log the reward information for the current step
+    """
+    # Get reward info from environment
+    if hasattr(env, 'get_reward_info'):
+        try:
+            reward_info = env.get_reward_info()
+            
+            # Log state metrics
+            metrics = reward_info.get("state_metrics", {})
+            logger.info(f"Step {step} Metrics: " 
+                        f"Distance={metrics.get('distance', 'N/A'):.4f}m, "
+                        f"RelVel={metrics.get('relative_velocity', 'N/A'):.4f}m/s, "
+                        f"OrientErr={metrics.get('orientation_error', 'N/A'):.4f}rad")
+            
+            # Log potential
+            potential = reward_info.get("potential", {})
+            potential_diff = potential.get('gamma', 0.95) * potential.get('current', 0) - potential.get('previous', 0)
+            logger.info(f"Step {step} Potential: " 
+                        f"Φ(s')={potential.get('current', 'N/A'):.4f}, "
+                        f"Φ(s)={potential.get('previous', 'N/A'):.4f}, "
+                        f"γΦ(s')-Φ(s)={potential_diff:.4f}")
+            
+            # Log rewards
+            rewards_str = ", ".join([f"{a}={r:.4f}" for a, r in rewards.items()])
+            logger.info(f"Step {step} Rewards: {rewards_str}")
+            
+        except Exception as e:
+            logger.error(f"Error logging reward info: {e}")
+    else:
+        logger.debug(f"Environment does not have get_reward_info method")
 
 # --- Main Training Script ---
 if __name__ == "__main__":

@@ -19,12 +19,12 @@ ACTION_DIM_PER_AGENT = 6 # 3 force + 3 torque
 # --- Action Scaling ---
 # Can be adjusted later for competitive/asymmetric control
 ACTION_FORCE_SCALING = 5.0
-ACTION_TORQUE_SCALING = 1.0
+ACTION_TORQUE_SCALING = 5.0
 
 # --- Rewards: Terminal ---
 REWARD_DOCKING_SUCCESS = 1000.0 # Increased emphasis on success
 REWARD_COLLISION = -100.0    # Significant penalty for non-docking collision
-REWARD_OUT_OF_BOUNDS = -600.0 # Penalty for drifting too far apart
+REWARD_OUT_OF_BOUNDS = -6000.0 # Penalty for drifting too far apart
 
 # --- Rewards: Potential-Based Shaping (Positive Potential Φ) ---
 # Goal: Φ should be HIGHER (more positive) when closer to the goal state.
