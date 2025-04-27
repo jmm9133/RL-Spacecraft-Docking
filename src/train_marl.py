@@ -422,7 +422,7 @@ if __name__ == "__main__":
         logger.info(f"Using {num_workers} environment runners (workers).")
 
         #rollout_fragment_length_estimate = 4000
-        rollout_fragment_length_estimate = 9000
+        rollout_fragment_length_estimate = 900
         effective_train_batch_size = num_workers * rollout_fragment_length_estimate
 
         logger.info(f"Setting rollout_fragment_length: {rollout_fragment_length_estimate}")
@@ -434,24 +434,27 @@ if __name__ == "__main__":
             .framework("torch")
             .env_runners(
                 num_env_runners=num_workers,
-                rollout_fragment_length=rollout_fragment_length_estimate,
-                observation_filter="MeanStdFilter",
+                #rollout_fragment_length=rollout_fragment_length_estimate,
+                rollout_fragment_length="auto",
+                observation_filter=None,
+                #observation_filter="MeanStdFilter",
                 num_envs_per_env_runner=1,
             )
             .training(
                 gamma=env_config.POTENTIAL_GAMMA,
                 lambda_=0.95,
                 lr=5e-5,
-                train_batch_size=effective_train_batch_size,
+                #train_batch_size=effective_train_batch_size,
+                train_batch_size=16384,
                 model={
-                    "fcnet_hiddens": [512, 512],
+                    "fcnet_hiddens": [128, 128],
                     "fcnet_activation": "relu",
                     "vf_share_layers": False,
                 },
                 optimizer={},
-                num_epochs=10, # Renamed from num_sgd_iter
+                num_epochs=3, # Renamed from num_sgd_iter
                 clip_param=0.2,
-                vf_clip_param=10.0,
+                vf_clip_param=100.0,
                 entropy_coeff=0.001,
                 kl_coeff=0.2,
                 kl_target=0.01,
@@ -480,7 +483,8 @@ if __name__ == "__main__":
                 evaluation_parallel_to_training=True,
                 evaluation_config = PPOConfig.overrides(
                      explore=False,
-                     observation_filter="MeanStdFilter",
+                     #observation_filter="MeanStdFilter",
+                     observation_filter=None,
                 )
             )
             .reporting(
@@ -561,6 +565,17 @@ if __name__ == "__main__":
             sampler_results = result.get("sampler_results", result.get("env_runners", {}))
             ep_reward_mean_sample = sampler_results.get("episode_reward_mean", float('nan'))
             ep_len_mean_sample = sampler_results.get("episode_len_mean", float('nan'))
+            all_attributes = dir(sampler_results)
+            #logger.info(f"  all attributes: {all_attributes}")        
+            #logger.info(f"train() returned keys: {list(result.keys())}")
+            #logger.info(f"  samplier_results keys: {sampler_results.keys()}")
+            mean_episode_reward = sampler_results['episode_return_mean']
+            ep_reward_mean_sample = mean_episode_reward
+            logger.info(mean_episode_reward)
+            # pull your rollout metrics from the new location:
+            # metrics = result.get("metrics", {})
+            # ep_reward_mean_sample = metrics.get("episode_reward_mean", float("nan"))
+            # ep_len_mean_sample    = metrics.get("episode_len_mean",    float("nan"))
 
             eval_metrics = result.get("evaluation", {})
             ep_reward_mean_eval = eval_metrics.get("episode_reward_mean", float('nan'))
