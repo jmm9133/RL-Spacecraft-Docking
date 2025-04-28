@@ -25,7 +25,7 @@ from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 100
+TRAIN_ITERATIONS = 600
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
@@ -443,7 +443,7 @@ if __name__ == "__main__":
             .training(
                 gamma=env_config.POTENTIAL_GAMMA,
                 lambda_=0.95,
-                lr=5e-5,
+                lr=1e-5,
                 #train_batch_size=effective_train_batch_size,
                 train_batch_size=16384,
                 model={
@@ -455,7 +455,7 @@ if __name__ == "__main__":
                 num_epochs=3, # Renamed from num_sgd_iter
                 clip_param=0.2,
                 vf_clip_param=100.0,
-                entropy_coeff=0.001,
+                entropy_coeff=0.005,
                 kl_coeff=0.2,
                 kl_target=0.01,
                 grad_clip=0.5,
@@ -566,7 +566,7 @@ if __name__ == "__main__":
             ep_reward_mean_sample = sampler_results.get("episode_reward_mean", float('nan'))
             ep_len_mean_sample = sampler_results.get("episode_len_mean", float('nan'))
             all_attributes = dir(sampler_results)
-            #logger.info(f"  all attributes: {all_attributes}")        
+            logger.info(f"  all attributes: {all_attributes}")        
             #logger.info(f"train() returned keys: {list(result.keys())}")
             #logger.info(f"  samplier_results keys: {sampler_results.keys()}")
             mean_episode_reward = sampler_results['episode_return_mean']
