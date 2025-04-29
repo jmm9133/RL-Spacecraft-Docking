@@ -8,7 +8,8 @@ import os
 import platform
 import time
 import logging
-
+from scipy.spatial.transform import Rotation as R
+HAS_SCIPY = True
 # Use PettingZoo API
 from pettingzoo import ParallelEnv
 
@@ -301,6 +302,46 @@ class SatelliteMARLEnv(ParallelEnv):
              terminations["__all__"] = True; truncations["__all__"] = False
              self._add_final_episode_stats(infos, self.possible_agents[:])
              return observations, rewards, terminations, truncations, infos
+        # --- EARLY OUT-OF-BOUNDS CHECK (using body origins) ---
+        # Get the starting indices for position parts of qpos for each agent
+        serv_qpos_start = self.joint_qpos_adr[env_config.SERVICER_AGENT_ID]
+        targ_qpos_start = self.joint_qpos_adr[env_config.TARGET_AGENT_ID]
+
+        # Extract position vectors
+        serv_pos = self.data.qpos[serv_qpos_start : serv_qpos_start + 3]
+        targ_pos = self.data.qpos[targ_qpos_start : targ_qpos_start + 3]
+
+        # Calculate the distance between the body origins
+        # Note: This might differ slightly from the docking site distance used for rewards/docking checks.
+        # Check for NaNs in positions before calculating distance
+        if not np.all(np.isfinite(serv_pos)) or not np.all(np.isfinite(targ_pos)):
+            logger.warning(f"Step {self.steps}: NaN/Inf in body positions detected before OOB check. Serv={serv_pos}, Targ={targ_pos}. Assuming OOB.")
+            dist = env_config.OUT_OF_BOUNDS_DISTANCE * 2 # Force OOB condition
+        else:
+            relative_pos_vector = targ_pos - serv_pos
+            dist = np.linalg.norm(relative_pos_vector) # Calculate the norm of the DIFFERENCE
+
+        # Check if distance exceeds the maximum allowed
+        if dist > env_config.OUT_OF_BOUNDS_DISTANCE: # Correct variable name used later
+            logger.info(f"Step {self.steps}: Early Out Of Bounds detected (Body Origin Dist={dist:.2f}m > {env_config.OUT_OF_BOUNDS_DISTANCE}m)")
+            # Build your terminal-step return
+            observations = {agent: self._get_obs(agent) for agent in self.possible_agents}
+            # Use the specific OOB reward from config
+            rewards      = {agent: env_config.REWARD_OUT_OF_BOUNDS for agent in self.possible_agents}
+            terminations = {agent: True                     for agent in self.possible_agents}
+            truncations  = {agent: False                    for agent in self.possible_agents}
+            infos        = {agent: {'status': 'out_of_bounds'} for agent in self.possible_agents}
+
+            # RLlib wants the “__all__” flags too:
+            terminations["__all__"] = True
+            truncations["__all__"]  = False
+
+            # Record your episode stats if you need to
+            self._add_final_episode_stats(infos, self.possible_agents[:])
+            self.agents = [] # Clear active agents as episode ended
+
+            return observations, rewards, terminations, truncations, infos
+        # --- END EARLY OUT-OF-BOUNDS CHECK -
 
         # Calculate rewards, terminations, truncations (robust methods handle internal errors)
         try:
@@ -490,56 +531,61 @@ class SatelliteMARLEnv(ParallelEnv):
             return np.pi
 
 
-    def _calculate_potential(self, distance, rel_vel_mag, orientation_error): # Add logging/checks
-        """Calculates the potential function Φ based on current state. Higher is better."""
+    def _calculate_potential(self, distance, rel_vel_mag, orientation_error): # Add gating logic
+        """Calculates the potential function Φ based on current state. Higher is better.
+           USING LINEAR NEGATIVE POTENTIAL: Φ = -Wd*dist - Gated(Wv*vel) - Gated(Wo*orient)
+        """
         Wd = env_config.POTENTIAL_WEIGHT_DISTANCE
         Wv = env_config.POTENTIAL_WEIGHT_VELOCITY
         Wo = env_config.POTENTIAL_WEIGHT_ORIENT
-        EPS = env_config.POTENTIAL_DISTANCE_EPSILON
-        # Wd = 0
-        # Wv = 0
-        # Wo = 0
-        # EPS = 0
+        GATE_DIST = env_config.PBRS_GATE_DISTANCE
+        GATE_FACTOR = env_config.PBRS_GATE_FACTOR_FAR
 
         # Use safe, clamped values from _get_current_state_metrics
-        safe_dist = max(0, distance) # Already clamped non-negative
-        safe_vel = max(0, rel_vel_mag) # Already clamped non-negative
-        safe_orient = max(0, min(np.pi, orientation_error)) # Already clamped 0..pi
-        potential_dist = 0.0
+        safe_dist = max(0, distance)
+        safe_vel = max(0, rel_vel_mag)
+        safe_orient = max(0, min(np.pi, orientation_error))
 
-        # --- CHANGE START: Use Linear Negative Distance Potential ---
+        # --- Calculate Gated Potential Components ---
         potential_dist = -Wd * safe_dist
         if not np.isfinite(potential_dist):
              logger.error(f"Potential calc: Non-finite distance potential {potential_dist} (Wd={Wd}, Dist={safe_dist}). Using 0.")
              potential_dist = 0.0
-        # --- CHANGE END ---
 
-        potential_vel = -Wv * safe_vel
+        # Determine gate factor based on distance
+        if safe_dist < GATE_DIST:
+            apply_factor = 1.0 # Apply full penalty when close
+        else:
+            apply_factor = GATE_FACTOR # Apply reduced penalty when far
+
+        # Calculate raw penalties and apply gate factor
+        raw_potential_vel = -Wv * safe_vel
+        potential_vel = raw_potential_vel * apply_factor
         if not np.isfinite(potential_vel):
-             logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, Vel={safe_vel}). Using 0.")
+             logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, Vel={safe_vel}, Factor={apply_factor}). Using 0.")
              potential_vel = 0.0
 
-        potential_orient = -Wo * safe_orient
+        raw_potential_orient = -Wo * safe_orient
+        potential_orient = raw_potential_orient * apply_factor
         if not np.isfinite(potential_orient):
-             logger.error(f"Potential calc: Non-finite orientation potential {potential_orient} (Wo={Wo}, Orient={safe_orient}). Using 0.")
+             logger.error(f"Potential calc: Non-finite orientation potential {potential_orient} (Wo={Wo}, Orient={safe_orient}, Factor={apply_factor}). Using 0.")
              potential_orient = 0.0
+        # --- End Gating Logic ---
 
         potential = potential_dist + potential_vel + potential_orient
-        # Potential can be very negative if far away, but shouldn't explode positively
-        # Clip might still be useful if Wd is very large, keep default clipping range?
         potential = np.clip(potential, -1e6, +1e6) # Keep clipping for safety
 
         if not np.isfinite(potential):
             logger.error(f"!!! FINAL POTENTIAL Φ={potential} IS NON-FINITE (Step {self.steps}). Components: D={potential_dist}, V={potential_vel}, O={potential_orient}. INPUTS: Dist={distance}, Vel={rel_vel_mag}, Orient={orientation_error}. CLAMPING TO 0 !!!")
             return 0.0 # Return neutral potential on error
 
-        logger.debug(f"Step {self.steps} Potential Calc (Linear): Φ={potential:.4f} (D={potential_dist:.4f}, V={potential_vel:.4f}, O={potential_orient:.4f})")
+        logger.debug(f"Step {self.steps} Potential Calc (Gated Linear): Φ={potential:.4f} (D={potential_dist:.4f}, V={potential_vel:.4f}, O={potential_orient:.4f}) (Factor={apply_factor:.2f})")
         return potential
 
-
-    def _calculate_rewards_and_done(self): # Add more logging
+    def _calculate_rewards_and_done(self): # Includes Incremental Bonuses
         """
-        Calculates rewards using PBRS, handles terminations/truncations, includes action costs.
+        Calculates rewards using PBRS (with potential gating), incremental bonuses,
+        terminal rewards, and action costs. Handles terminations/truncations.
         Ensures returned rewards/dones are always finite and cover all agents.
         """
         rewards = {a: 0.0 for a in self.possible_agents} # Initialize for ALL agents
@@ -567,8 +613,8 @@ class SatelliteMARLEnv(ParallelEnv):
                     body1 = self.model.geom_bodyid[c.geom1]
                     body2 = self.model.geom_bodyid[c.geom2]
                     is_serv_targ_contact = ({body1, body2} == {servicer_body_id, target_body_id})
-                    # Check penetration distance (dist < 0 means penetration)
-                    if is_serv_targ_contact and c.dist <= 0.0: # Use <= 0 for definite penetration
+                    # Check penetration distance (dist <= 0 means penetration)
+                    if is_serv_targ_contact and c.dist <= 0.0:
                          collision = True
                          logger.info(f"Step {self.steps}: Collision detected! Contact {i}, dist={c.dist:.4f}, Bodies=({body1},{body2})")
                          break
@@ -596,107 +642,176 @@ class SatelliteMARLEnv(ParallelEnv):
 
         # Assign terminal rewards (shared)
         for agent in self.possible_agents:
+            # Add terminal reward (will be 0 if not a terminal state)
             rewards[agent] += terminal_reward
-            if status != 'in_progress': infos[agent]['status'] = status
+            # Update status info if the episode ended for a specific reason
+            if status != 'in_progress':
+                 if agent not in infos: infos[agent] = {} # Ensure info dict exists
+                 infos[agent]['status'] = status
 
         # --- 3. Check Truncation Condition ---
         is_truncated = False
-        if self.steps >= env_config.MAX_STEPS_PER_EPISODE:
+        if not terminate_episode and self.steps >= env_config.MAX_STEPS_PER_EPISODE: # Only truncate if not already terminated
             logger.info(f"Step {self.steps}: Max steps ({env_config.MAX_STEPS_PER_EPISODE}) reached, truncating.")
             status = 'max_steps'
             is_truncated = True
             for agent in self.possible_agents:
-                if not terminations.get(agent, False): # Only truncate if not already terminated
-                    truncations[agent] = True
-                    # Small timeout penalty if not docked
-                    if not docked: rewards[agent] -= 5.0
-                infos[agent]['status'] = status # Update status to max_steps
+                truncations[agent] = True
+                # Small timeout penalty if not docked (applied only at truncation)
+                if not docked: rewards[agent] -= 5.0
+                # Update status info for truncation
+                if agent not in infos: infos[agent] = {} # Ensure info dict exists
+                infos[agent]['status'] = status
 
         episode_over = terminate_episode or is_truncated
 
-        # --- 4. Calculate Shaping Rewards (PBRS + Action Cost) - Only if episode NOT over ---
+        # --- 4. Calculate Shaping Rewards & Bonuses - Only if episode NOT over ---
         if not episode_over:
-            # --- PBRS Calculation (Uses robust _calculate_potential) ---
-            current_potential_servicer = self._calculate_potential(dist, rel_vel_mag, orient_err)
-            logger.debug(f"Step {self.steps}: Potential Φ(s')_serv = {current_potential_servicer:.4f}, Prev Φ(s)_serv = {self.prev_potential_servicer:.4f}")
+            # --- PBRS Calculation (Uses robust _calculate_potential with gating) ---
+            pbrs_enabled = (env_config.POTENTIAL_WEIGHT_DISTANCE != 0.0 or
+                            env_config.POTENTIAL_WEIGHT_VELOCITY != 0.0 or
+                            env_config.POTENTIAL_WEIGHT_ORIENT != 0.0)
+            shaping_reward_servicer = 0.0 # Default if PBRS is off
 
-            gamma = env_config.POTENTIAL_GAMMA
-            # Ensure previous potential is finite (might be inf from reset if start was bad)
-            safe_prev_potential = np.nan_to_num(self.prev_potential_servicer, nan=0.0, posinf=0.0, neginf=0.0)
+            if pbrs_enabled:
+                current_potential_servicer = self._calculate_potential(dist, rel_vel_mag, orient_err)
+                # Debug log for potential is now inside _calculate_potential
 
-            shaping_reward_servicer = gamma * current_potential_servicer - safe_prev_potential
-            # --- CHANGE START: Add Direct Clipping to Shaping Reward ---
-                # Define a maximum magnitude for the shaping reward per step to prevent explosions
-            MAX_SHAPING_REWARD_MAGNITUDE = 50.0 # Tune this value if needed (e.g., 20, 50, 100)
-            clipped_shaping_reward = np.clip(shaping_reward_servicer, -MAX_SHAPING_REWARD_MAGNITUDE, MAX_SHAPING_REWARD_MAGNITUDE)
+                gamma = env_config.POTENTIAL_GAMMA
+                # Ensure previous potential is finite (might be inf/nan from reset if start was bad)
+                safe_prev_potential = np.nan_to_num(self.prev_potential_servicer, nan=0.0, posinf=0.0, neginf=0.0)
+                
+                raw_shaping_reward = gamma * current_potential_servicer - safe_prev_potential
+                MAX_SHAPING_REWARD_MAGNITUDE = 50.0
+                shaping_reward_servicer = np.clip(raw_shaping_reward, -MAX_SHAPING_REWARD_MAGNITUDE, MAX_SHAPING_REWARD_MAGNITUDE)
+                if not np.isfinite(shaping_reward_servicer):
+                    shaping_reward_servicer = 0.0
+                # Clip the calculated PBRS reward per step for stability
+                # MAX_SHAPING_REWARD_MAGNITUDE = 50.0 # Safety clip magnitude
+                # clipped_shaping_reward = np.clip(raw_shaping_reward, -MAX_SHAPING_REWARD_MAGNITUDE, MAX_SHAPING_REWARD_MAGNITUDE)
 
-                # Optional: Log when clipping actually happens
-            if clipped_shaping_reward != shaping_reward_servicer:
-                 logger.warning(f"Step {self.steps}: Clipped PBRS reward from {shaping_reward_servicer:.4f} to {clipped_shaping_reward:.4f} (Potential: current={current_potential_servicer:.2f}, prev={safe_prev_potential:.2f})")
+                # # Optional: Log when clipping actually happens
+                # if clipped_shaping_reward != raw_shaping_reward:
+                #      logger.warning(f"Step {self.steps}: Clipped PBRS reward from {raw_shaping_reward:.4f} to {clipped_shaping_reward:.4f} (Potential: current={current_potential_servicer:.2f}, prev={safe_prev_potential:.2f})")
 
-            shaping_reward_servicer = clipped_shaping_reward # Use the clipped value
-                # --- CHANGE END ---
+                # shaping_reward_servicer = clipped_shaping_reward # Use the clipped value
 
-            if not np.isfinite(shaping_reward_servicer):
-                logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated. γ={gamma}, Φ(s')={current_potential_servicer}, Φ(s)={safe_prev_potential}. Setting to 0. !!!")
-                shaping_reward_servicer = 0.0
-
+                # if not np.isfinite(shaping_reward_servicer):
+                #     logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated AFTER clipping. Setting to 0. !!!")
+                #     shaping_reward_servicer = 0.0
+                if not np.isfinite(shaping_reward_servicer):
+                    logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated. Setting to 0. !!!")
+                    shaping_reward_servicer = 0.0
+                for aid in rewards:
+                    rewards[aid] *= 0.01   # now everything is in a ~[-50,+50] range
+            # Add PBRS reward (potentially 0 if disabled) to servicer
             rewards[env_config.SERVICER_AGENT_ID] += shaping_reward_servicer
             logger.debug(f"Step {self.steps}: Shaping Reward (Servicer) = {shaping_reward_servicer:.4f}")
 
+
+            # --- Calculate Incremental Bonuses ---
+            incremental_bonus = 0.0
+            # Calculate thresholds for bonus eligibility based on factors in config
+            bonus_dist_thresh = env_config.DOCKING_DISTANCE_THRESHOLD * env_config.INCREMENTAL_BONUS_DIST_FACTOR
+            bonus_vel_thresh = env_config.DOCKING_VELOCITY_THRESHOLD * env_config.INCREMENTAL_BONUS_VEL_FACTOR
+            bonus_orient_thresh = env_config.DOCKING_ORIENT_THRESHOLD * env_config.INCREMENTAL_BONUS_ORIENT_FACTOR
+
+            # Check conditions (use metrics calculated at the start)
+            is_near = dist < bonus_dist_thresh
+            is_slow = rel_vel_mag < bonus_vel_thresh
+            is_aligned = orient_err < bonus_orient_thresh
+
+            # Bonus for being close AND reasonably aligned
+            if is_near and is_aligned:
+                 incremental_bonus += env_config.INCREMENTAL_BONUS_ALIGN_NEAR
+
+            # Bonus for being close AND slow
+            if is_near and is_slow:
+                 incremental_bonus += env_config.INCREMENTAL_BONUS_SLOW_NEAR
+
+            # Add calculated incremental bonus to servicer reward
+            if incremental_bonus > 0:
+                logger.debug(f"Step {self.steps}: Awarding incremental bonus: {incremental_bonus:.2f} (Near={is_near}, Slow={is_slow}, Aligned={is_aligned})")
+                rewards[env_config.SERVICER_AGENT_ID] += incremental_bonus
+            # --- End Incremental Bonuses ---
+
+
             # --- Action Cost Penalty ---
             for agent_id in self.possible_agents:
-                 action_cost_weight = env_config.REWARD_WEIGHT_ACTION_COST # Default
-                 if env_config.COMPETITIVE_MODE: pass # Add competitive logic later if needed
+                 action_cost_weight = env_config.REWARD_WEIGHT_ACTION_COST # Use default weight
+                 # Add specific agent weights later if needed via getattr(env_config, f"...", default)
 
-                 if action_cost_weight != 0 and hasattr(self, "current_actions"):
-                      action = np.asarray(self.current_actions.get(agent_id, np.zeros(env_config.ACTION_DIM_PER_AGENT)), dtype=np.float64)
+                 if action_cost_weight != 0 and hasattr(self, "current_actions") and agent_id in self.current_actions:
+                      action = np.asarray(self.current_actions[agent_id], dtype=np.float64)
                       # Ensure action is finite before squaring
                       if not np.all(np.isfinite(action)):
                            logger.warning(f"Step {self.steps}: Non-finite action {action} for {agent_id} before action cost calc. Skipping cost.")
-                           continue
+                           continue # Skip penalty for this agent this step
                       action_norm_sq = np.sum(action**2)
                       if np.isfinite(action_norm_sq): # Should be finite if action was
                            action_cost_penalty = action_cost_weight * action_norm_sq
-                           rewards[agent_id] += action_cost_penalty
+                           rewards[agent_id] += action_cost_penalty # Apply penalty
                            logger.debug(f"Step {self.steps}: Action Cost ({agent_id}) = {action_cost_penalty:.6f} (Weight={action_cost_weight})")
                       else:
                            logger.error(f"Step {self.steps}: Non-finite action norm squared ({action_norm_sq}) for {agent_id}. Action={action}")
+                 elif action_cost_weight != 0:
+                      logger.warning(f"Step {self.steps}: Cannot apply action cost for {agent_id}, current_actions not available or agent missing.")
 
-            # --- Collaborative Mode: Share PBRS Shaping Reward ---
+
+            # --- Collaborative Mode: Share PBRS + Bonus ---
+            # Combine the PBRS part and the incremental bonus part for sharing
+            total_shaping_bonus = shaping_reward_servicer + incremental_bonus
             if not env_config.COMPETITIVE_MODE:
-                 rewards[env_config.TARGET_AGENT_ID] += shaping_reward_servicer # Share PBRS
-                 logger.debug(f"Step {self.steps}: Shared Shaping Reward (Target) = {shaping_reward_servicer:.4f}")
+                 # Add the combined shaping and bonus to the target agent's reward
+                 # Note: Action cost is calculated individually above and not shared here.
+                 # Note: Terminal rewards were added individually (but equally) earlier.
+                 rewards[env_config.TARGET_AGENT_ID] += total_shaping_bonus
+                 logger.debug(f"Step {self.steps}: Shared Shaping+Bonus (Target) = {total_shaping_bonus:.4f}")
             else:
-                 # Competitive logic placeholder
+                 # Competitive logic placeholder (e.g., target might get negative of servicer shaping)
                  pass
 
+
         # --- 5. Update Previous State for Next Step's PBRS ---
-        # Use the potential calculated in this step (based on s') as the prev potential for next step
-        current_potential_servicer_end = self._calculate_potential(dist, rel_vel_mag, orient_err)
-        self.prev_potential_servicer = current_potential_servicer_end # Already checked for finite
+        # Only update potential if PBRS is actually enabled and episode not over
+        # Otherwise, reset potential to 0 at episode end for clean start next time
+        pbrs_is_actually_enabled = (env_config.POTENTIAL_WEIGHT_DISTANCE != 0.0 or
+                                    env_config.POTENTIAL_WEIGHT_VELOCITY != 0.0 or
+                                    env_config.POTENTIAL_WEIGHT_ORIENT != 0.0)
 
-        if env_config.COMPETITIVE_MODE:
-             # Update prev_potential_target here if needed
-             pass
+        if not episode_over and pbrs_is_actually_enabled:
+             # Recalculate potential based on the current state metrics (dist, rel_vel_mag, orient_err)
+             # This becomes the "previous" potential for the *next* step's calculation.
+             current_potential_servicer_end = self._calculate_potential(dist, rel_vel_mag, orient_err)
+             self.prev_potential_servicer = current_potential_servicer_end # Already checked for finite within _calculate_potential
+        elif episode_over: # Reset potential at episode end
+             self.prev_potential_servicer = 0.0
+             # Optionally reset target potential if competitive mode is added later
+             # self.prev_potential_target = 0.0
 
+        # Store the current distance for potential use (e.g., logging, future reward ideas)
         self.prev_docking_distance = dist # Already checked for finite
 
-        # --- 6. Final Reward Check & Augment Infos ---
-        for agent, reward in rewards.items():
-            if not np.isfinite(reward):
-                logger.error(f"!!! FINAL REWARD FOR {agent} IS NON-FINITE ({reward}) at step {self.steps} BEFORE RETURN !!! Setting to -50.")
-                rewards[agent] = -50.0
-            # Store final step reward in info (ensure dict exists)
-            if agent not in infos: infos[agent] = {}
-            infos[agent]['reward_step_total'] = rewards[agent]
 
+        # --- 6. Final Reward Check & Augment Infos ---
+        # Final check to ensure no NaNs/Infs slipped through
+        for agent, reward_value in rewards.items():
+            if not np.isfinite(reward_value):
+                logger.error(f"!!! FINAL REWARD FOR {agent} IS NON-FINITE ({reward_value}) at step {self.steps} BEFORE RETURN !!! Setting to -50.")
+                rewards[agent] = -50.0 # Assign a default penalty
+
+            # Store final calculated step reward in info dict for logging/analysis
+            if agent not in infos: infos[agent] = {} # Ensure dict exists
+            infos[agent]['reward_step_total'] = rewards[agent] # Store the final reward for this step
+
+
+        # Log final values before returning
         logger.debug(f"Step {self.steps} Final Raw Rewards Returned: {rewards}")
         logger.debug(f"Step {self.steps} Final Raw Terminations: {terminations}")
         logger.debug(f"Step {self.steps} Final Raw Truncations: {truncations}")
 
+        # Return values following the PettingZoo API standard
         return rewards, terminations, truncations, infos
-
     # Add the get_reward_info function (Keep as is)
     def get_reward_info(self):
         dist, rel_vel_mag, orient_err = self._get_current_state_metrics()
@@ -710,8 +825,15 @@ class SatelliteMARLEnv(ParallelEnv):
         return reward_info
 
 
-    def _get_obs(self, agent): # Add more internal checks
-        """Calculates the observation vector for the specified agent. Returns zero vector on failure."""
+    def _get_obs(self, agent): # Add relative orientation calculation - CORRECTED APPEND LOGIC
+        """Calculates the observation vector for the specified agent, including relative orientation.
+           Returns zero vector on failure.
+           Structure: [rel_pos(3), rel_vel(3), own_quat(4), own_ang_vel(3), rel_quat(4)] Total=17
+        """
+        if not HAS_SCIPY:
+            logger.warning("Scipy unavailable, returning zero observation.", once=True)
+            return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
+
         try:
             servicer_qpos_adr = self.joint_qpos_adr[env_config.SERVICER_AGENT_ID]
             servicer_qvel_adr = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
@@ -732,19 +854,20 @@ class SatelliteMARLEnv(ParallelEnv):
             corrected_data = {}
             needs_correction = False
             for name, arr in data_arrays.items():
-                 original_arr = arr.copy() # Keep original for comparison if needed
-                 if not np.all(np.isfinite(arr)):
-                     logger.warning(f"NaN/Inf detected in raw MuJoCo data '{name}' for agent {agent} at step {self.steps}: {arr}. Correcting.")
+                 # Using .copy() ensures we don't modify the original self.data view
+                 arr_copy = arr.copy()
+                 if not np.all(np.isfinite(arr_copy)):
+                     logger.warning(f"NaN/Inf detected in raw MuJoCo data '{name}' for agent {agent} at step {getattr(self, 'steps', 0)}: {arr_copy}. Correcting.")
                      needs_correction = True
                      if name.endswith("quat"):
-                          # Reset invalid quaternion to default identity [1, 0, 0, 0]
-                          arr = np.array([1.0, 0.0, 0.0, 0.0])
+                          # Reset invalid quaternion to default identity [1, 0, 0, 0] (WXYZ)
+                          arr_copy = np.array([1.0, 0.0, 0.0, 0.0])
                      else:
-                          # Clamp positions/velocities using obs clipping bounds for consistency
-                          arr = np.nan_to_num(arr, copy=True, nan=0.0, posinf=env_config.OUT_OF_BOUNDS_DISTANCE*2, neginf=-env_config.OUT_OF_BOUNDS_DISTANCE*2) # Clamp large positions/vels
-                 corrected_data[name] = arr
+                          # Use nan_to_num for positions/velocities
+                          arr_copy = np.nan_to_num(arr_copy, copy=False, nan=0.0, posinf=100.0, neginf=-100.0) # Example bounds
+                 corrected_data[name] = arr_copy
 
-            # Normalize quaternions AFTER potential correction/reset
+            # Normalize own quaternions AFTER potential correction/reset
             for name in ["servicer_quat", "target_quat"]:
                  quat = corrected_data[name]
                  norm = np.linalg.norm(quat)
@@ -754,51 +877,95 @@ class SatelliteMARLEnv(ParallelEnv):
                       logger.warning(f"Quaternion '{name}' had near-zero norm ({norm}) after potential correction. Resetting to identity.")
                       corrected_data[name] = np.array([1.0, 0.0, 0.0, 0.0])
 
-            if needs_correction: logger.warning(f"MuJoCo data corrected before obs calculation for agent {agent} step {self.steps}.")
-            # --- End checks ---
+            if needs_correction: logger.warning(f"MuJoCo data corrected before obs calculation for agent {agent} step {getattr(self, 'steps', 0)}.")
 
-            # Calculate relative state (World Frame) using corrected data
+            # --- Calculate relative state (World Frame) using corrected data ---
             relative_pos_world = corrected_data["target_pos"] - corrected_data["servicer_pos"]
             relative_vel_world = corrected_data["target_vel"] - corrected_data["servicer_vel"]
 
-            # Assemble observation list using corrected data
+            # --- Calculate Relative Orientation ---
+            rel_quat_target_in_servicer = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64) # Default: Identity (WXYZ)
+            try:
+                serv_site_mat = self.data.site_xmat[self.site_ids["servicer_dock"]].reshape(3, 3).copy()
+                targ_site_mat = self.data.site_xmat[self.site_ids["target_dock"]].reshape(3, 3).copy()
+
+                if np.all(np.isfinite(serv_site_mat)) and np.all(np.isfinite(targ_site_mat)):
+                    rel_rot_mat = serv_site_mat.T @ targ_site_mat
+                    try:
+                         rel_quat_scipy = R.from_matrix(rel_rot_mat).as_quat()
+                         rel_quat_wxyz = rel_quat_scipy[[3, 0, 1, 2]]
+                         norm = np.linalg.norm(rel_quat_wxyz)
+                         if norm > 1e-6:
+                              rel_quat_target_in_servicer = rel_quat_wxyz / norm
+                         # No else needed, defaults to identity if norm is zero
+                    except ValueError as e:
+                         logger.error(f"Scipy conversion error for relative rotation: {e}. Matrix:\n{rel_rot_mat}\n Using identity quaternion.")
+                    except Exception as e:
+                        logger.error(f"Unexpected error converting relative rotation: {e}. Using identity quaternion.")
+                else:
+                    logger.warning(f"Step {getattr(self, 'steps', 0)}: NaN/Inf in site matrices. Cannot compute relative orientation.")
+            except IndexError:
+                 logger.error(f"IndexError getting site matrices for relative orientation. Check site names/IDs.")
+            except Exception as e:
+                 logger.exception(f"Unexpected error getting relative orientation: {e}")
+
+            # ----- CORRECTED LIST ASSEMBLY -----
+            # Initialize list with common relative components
+            obs_components = [relative_pos_world, relative_vel_world]
+
             if agent == env_config.SERVICER_AGENT_ID:
-                obs_list = [ relative_pos_world, relative_vel_world,
-                             corrected_data["servicer_quat"], corrected_data["servicer_ang_vel"] ]
+                # Add servicer's own state
+                obs_components.append(corrected_data["servicer_quat"])
+                obs_components.append(corrected_data["servicer_ang_vel"])
+                # Add relative orientation (target w.r.t servicer)
+                obs_components.append(rel_quat_target_in_servicer)
+
             elif agent == env_config.TARGET_AGENT_ID:
-                obs_list = [ -relative_pos_world, -relative_vel_world,
-                             corrected_data["target_quat"], corrected_data["target_ang_vel"] ]
+                # Invert relative components for target's perspective
+                obs_components = [-relative_pos_world, -relative_vel_world]
+                # Add target's own state
+                obs_components.append(corrected_data["target_quat"])
+                obs_components.append(corrected_data["target_ang_vel"])
+                # Add relative orientation (servicer w.r.t target)
+                inv_rel_quat = rel_quat_target_in_servicer * np.array([1.0, -1.0, -1.0, -1.0])
+                obs_components.append(inv_rel_quat)
             else:
                 logger.error(f"Unknown agent ID '{agent}' requested for observation.")
                 return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
 
             # Check components *before* concatenation
-            for i, arr in enumerate(obs_list):
-                if not np.all(np.isfinite(arr)):
-                    logger.error(f"!!! NaN/Inf detected in obs component {i} for agent {agent} BEFORE concatenation (Step {self.steps}): {arr}. Correcting to zero.")
-                    obs_list[i] = np.zeros_like(arr)
+            valid_components = []
+            for i, arr in enumerate(obs_components):
+                comp_array = np.asarray(arr, dtype=np.float32) # Ensure it's an array first
+                if not np.all(np.isfinite(comp_array)):
+                    logger.error(f"!!! NaN/Inf detected in obs component {i} for agent {agent} BEFORE concatenation (Step {getattr(self, 'steps', 0)}): {comp_array}. Correcting to zero.")
+                    valid_components.append(np.zeros_like(comp_array))
+                else:
+                    valid_components.append(comp_array)
 
-            # Concatenate into a single observation vector
-            obs = np.concatenate(obs_list)
+            # Concatenate the validated components
+            obs = np.concatenate(valid_components)
+            # ----- END CORRECTED LIST ASSEMBLY -----
+
 
             # Final shape check
             if obs.shape[0] != env_config.OBS_DIM_PER_AGENT:
-                 logger.error(f"FATAL Obs dim mismatch for {agent} at step {self.steps}: Got {obs.shape[0]}, expected {env_config.OBS_DIM_PER_AGENT}. Concatenated from: {[c.shape for c in obs_list]}. Returning zero vector.")
+                 logger.error(f"FATAL Obs dim mismatch for {agent} at step {getattr(self, 'steps', 0)}: Got {obs.shape[0]}, expected {env_config.OBS_DIM_PER_AGENT}. Concatenated from: {[c.shape for c in valid_components]}. Returning zero vector.")
+                 # This error should hopefully not happen now, but keep check as safeguard
                  return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
 
-            # Final finite check
+            # Final finite check (redundant after component check, but safe)
             if not np.all(np.isfinite(obs)):
-                logger.error(f"!!! NaN/Inf detected in FINAL assembled observation for {agent} at step {self.steps}. Obs: {obs}. Returning zero vector.")
+                logger.error(f"!!! NaN/Inf detected in FINAL assembled observation for {agent} at step {getattr(self, 'steps', 0)}. Obs: {obs}. Returning zero vector.")
                 return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
 
-            # Return correct type
             return obs.astype(np.float32)
 
         except IndexError:
-             logger.exception(f"IndexError calculating observation for agent {agent} at step {self.steps}. MuJoCo IDs/addresses might be wrong.")
+             logger.exception(f"IndexError calculating observation for agent {agent} at step {getattr(self, 'steps', 0)}. MuJoCo IDs/addresses might be wrong.")
              return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
         except Exception as e:
-            logger.exception(f"CRITICAL Error calculating observation for agent {agent} at step {self.steps}: {e}")
+            logger.exception(f"CRITICAL Error calculating observation for agent {agent} at step {getattr(self, 'steps', 0)}: {e}")
             return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
 
     def _apply_actions(self, actions): # Keep robust checks
