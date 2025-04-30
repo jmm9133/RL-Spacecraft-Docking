@@ -517,6 +517,62 @@ class SatelliteMARLEnv(ParallelEnv):
         orient_err = np.nan_to_num(orient_err, nan=np.pi, posinf=np.pi, neginf=0.0)
 
         return dist, rel_vel_mag, closing_rate, orient_err
+    def _calculate_orientation_guidance(self):
+        """
+        Calculates orientation error and guidance vector for docking alignment.
+        Returns:
+            - angle_error: Scalar angle between docking ports (radians)
+            - error_axis: Unit vector representing axis to rotate around for correction
+        """
+        # Get docking port orientations
+        serv_dock_mat = self.data.site_xmat[self.site_ids["servicer_dock"]].reshape(3, 3)
+        targ_dock_mat = self.data.site_xmat[self.site_ids["target_dock"]].reshape(3, 3)
+        
+        # Extract the docking axis (z-axis) from both ports
+        serv_dock_axis = serv_dock_mat[:, 2]  # Z-axis of servicer dock
+        targ_dock_axis = -targ_dock_mat[:, 2]  # Negative Z-axis of target dock (for alignment)
+        
+        # Normalize axes to ensure unit vectors (defensive programming)
+        serv_norm = np.linalg.norm(serv_dock_axis)
+        targ_norm = np.linalg.norm(targ_dock_axis)
+        
+        if serv_norm < 1e-6 or targ_norm < 1e-6:
+            logger.warning(f"Near-zero dock axis norm detected: serv={serv_norm}, targ={targ_norm}")
+            return np.pi, np.zeros(3)  # Return max error and zero guidance
+        
+        serv_dock_axis = serv_dock_axis / serv_norm
+        targ_dock_axis = targ_dock_axis / targ_norm
+        
+        # Calculate the angle between the two vectors
+        dot_product = np.clip(np.dot(serv_dock_axis, targ_dock_axis), -1.0, 1.0)
+        angle_error = np.arccos(dot_product)
+        
+        # Calculate the axis to rotate around (direction of correction)
+        error_axis = np.cross(serv_dock_axis, targ_dock_axis)
+        axis_norm = np.linalg.norm(error_axis)
+        
+        # If axes are nearly aligned or anti-aligned, the cross product is near zero
+        if axis_norm < 1e-6:
+            if dot_product > 0:
+                # Nearly aligned already
+                return angle_error, np.zeros(3)
+            else:
+                # Anti-aligned (need 180° rotation)
+                # Choose any perpendicular axis (e.g., using the UP vector as reference)
+                world_up = np.array([0.0, 0.0, 1.0])
+                error_axis = np.cross(serv_dock_axis, world_up)
+                axis_norm = np.linalg.norm(error_axis)
+                
+                # If still having issues (rare, but possible)
+                if axis_norm < 1e-6:
+                    world_right = np.array([1.0, 0.0, 0.0])
+                    error_axis = np.cross(serv_dock_axis, world_right)
+                    axis_norm = np.linalg.norm(error_axis)
+        
+        # Normalize the axis vector
+        error_axis = error_axis / axis_norm
+        
+        return angle_error, error_axis
 
     def _calculate_orientation_error(self): # Add more checks
         """Calculates the angular error (in radians) between docking ports' target axes."""
@@ -578,6 +634,11 @@ class SatelliteMARLEnv(ParallelEnv):
         safe_vel = max(0, rel_vel_mag) # Already clamped non-negative
         safe_orient = max(0, min(np.pi, orientation_error)) # Already clamped 0..pi
         potential_dist = 0.0
+        orient_err, orient_guide_axis = self._calculate_orientation_guidance()
+    
+            # Basic reward inversely proportional to orientation error
+            # Convert from [0,π] to [1,0] range
+        align = max(0, 1.0 - orient_err / np.pi)
 
         # --- CHANGE START: Use Linear Negative Distance Potential ---
         potential_dist = Wd * np.exp(-safe_dist / 1.5)
@@ -595,7 +656,7 @@ class SatelliteMARLEnv(ParallelEnv):
             logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, ClosingRate={safe_closing_rate}). Using 0.")
             potential_vel = 0.0
 
-        potential_orient = -Wo * safe_orient
+        potential_orient = -Wo * align
         if not np.isfinite(potential_orient):
              logger.error(f"Potential calc: Non-finite orientation potential {potential_orient} (Wo={Wo}, Orient={safe_orient}). Using 0.")
              potential_orient = 0.0
@@ -756,6 +817,7 @@ class SatelliteMARLEnv(ParallelEnv):
             if not np.isfinite(shaping_reward_servicer):
                 logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated. γ={gamma}, Φ(s')={current_potential_servicer}, Φ(s)={safe_prev_potential}. Setting to 0. !!!")
                 shaping_reward_servicer = 0.0
+            
 
             rewards[env_config.SERVICER_AGENT_ID] += shaping_reward_servicer
             logger.debug(f"Step {self.steps}: Shaping Reward (Servicer) = {shaping_reward_servicer:.4f}")
@@ -894,14 +956,15 @@ class SatelliteMARLEnv(ParallelEnv):
             relative_ang_vel_world = corrected_data["target_ang_vel"] - corrected_data["servicer_ang_vel"]
             target_ang_vel_world = corrected_data["target_ang_vel"]
             servicer_ang_vel_world = corrected_data["servicer_ang_vel"]
+            orient_err, orient_guide_axis = self._calculate_orientation_guidance()
 
             # Assemble observation list using corrected data
             if agent == env_config.SERVICER_AGENT_ID:
                 obs_list = [ relative_pos_world, relative_vel_world,
-                             relatice_quat_world, servicer_ang_vel_world,np.array([dock_dist]) ]
+                             relatice_quat_world, servicer_ang_vel_world,np.array([dock_dist,orient_err]),orient_guide_axis ]
             elif agent == env_config.TARGET_AGENT_ID:
                 obs_list = [ -relative_pos_world, -relative_vel_world,
-                             -relatice_quat_world, target_ang_vel_world,np.array([dock_dist]) ]
+                             -relatice_quat_world, target_ang_vel_world,np.array([dock_dist,orient_err]),orient_guide_axis ]
             else:
                 logger.error(f"Unknown agent ID '{agent}' requested for observation.")
                 return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)

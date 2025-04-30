@@ -5,7 +5,7 @@ import os
 POSSIBLE_AGENTS = ["servicer", "target"]
 SERVICER_AGENT_ID = "servicer"
 TARGET_AGENT_ID = "target"
-OBS_DIM_PER_AGENT = 14  # 3 (rel_pos) + 3 (rel_vel) + 4 (rel_quat) + 3 (rel_ang_vel) + 1 (distance) + 3 (future expansion)
+OBS_DIM_PER_AGENT = 18  # 3 (rel_pos) + 3 (rel_vel) + 4 (rel_quat) + 3 (rel_ang_vel) + 1 (distance) + 3 (future expansion)
 ACTION_DIM_PER_AGENT = 6  # 3 (force) + 3 (torque)
 
 # --- Environment Dynamics ---
@@ -47,7 +47,7 @@ REWARD_COLLISION = -30.0                  # Reduced magnitude
 REWARD_OUT_OF_BOUNDS = -20.0              # Reduced magnitude
 
 # Action cost weight (control effort penalty)
-REWARD_WEIGHT_ACTION_COST = -0.01          # Reduced from -1.0 for better balance
+REWARD_WEIGHT_ACTION_COST = -0.001          # Reduced from -1.0 for better balance
 
 # Competitive/Collaborative Mode
 COMPETITIVE_MODE = False                  # Set to True for competitive environment
@@ -55,7 +55,7 @@ COMPETITIVE_MODE = False                  # Set to True for competitive environm
 # --- Potential-Based Reward Shaping Parameters ---
 POTENTIAL_WEIGHT_DISTANCE = 5.0           # Distance component weight (greatly reduced)
 POTENTIAL_WEIGHT_VELOCITY = 1.0           # Velocity component weight (reduced)
-POTENTIAL_WEIGHT_ORIENT = 1.0             # Orientation component weight (reduced)
+POTENTIAL_WEIGHT_ORIENT = 2.0             # Orientation component weight (reduced)
 POTENTIAL_DISTANCE_EPSILON = 0.1          # Small epsilon for numerical stability
 POTENTIAL_GAMMA = 0.99                    # Discount factor for PBRS - MATCH TO YOUR RL ALGORITHM
 

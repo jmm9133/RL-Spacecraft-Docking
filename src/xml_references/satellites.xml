@@ -28,7 +28,7 @@
 
     <!-- Cameras -->
     <camera name="track_servicer" mode="trackcom" target="servicer" pos="0 -5 1"/>
-    <camera name="fixed_side" pos="5 0 1" xyaxes="0 1 0 -0.1 -0 1"/> <!-- Adjusted xyaxes for better view -->
+    <camera name="fixed_side" pos="10 0 0" xyaxes="0 1 0 -0.1 -0 1"/> <!-- Adjusted xyaxes for better view -->
     <camera name="fixed_top" pos="0 0 5" xyaxes="1 0 0 0 1 0"/>
 
     <!-- Servicer Satellite -->

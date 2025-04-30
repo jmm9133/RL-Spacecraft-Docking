@@ -444,6 +444,62 @@ class SatelliteMARLEnv(ParallelEnv):
         orient_err = np.nan_to_num(orient_err, nan=np.pi, posinf=np.pi, neginf=0.0) # Orient err 0 to pi
 
         return dist, rel_vel_mag, orient_err
+    def _calculate_orientation_guidance(self):
+        """
+        Calculates orientation error and guidance vector for docking alignment.
+        Returns:
+            - angle_error: Scalar angle between docking ports (radians)
+            - error_axis: Unit vector representing axis to rotate around for correction
+        """
+        # Get docking port orientations
+        serv_dock_mat = self.data.site_xmat[self.site_ids["servicer_dock"]].reshape(3, 3)
+        targ_dock_mat = self.data.site_xmat[self.site_ids["target_dock"]].reshape(3, 3)
+        
+        # Extract the docking axis (z-axis) from both ports
+        serv_dock_axis = serv_dock_mat[:, 2]  # Z-axis of servicer dock
+        targ_dock_axis = -targ_dock_mat[:, 2]  # Negative Z-axis of target dock (for alignment)
+        
+        # Normalize axes to ensure unit vectors (defensive programming)
+        serv_norm = np.linalg.norm(serv_dock_axis)
+        targ_norm = np.linalg.norm(targ_dock_axis)
+        
+        if serv_norm < 1e-6 or targ_norm < 1e-6:
+            logger.warning(f"Near-zero dock axis norm detected: serv={serv_norm}, targ={targ_norm}")
+            return np.pi, np.zeros(3)  # Return max error and zero guidance
+        
+        serv_dock_axis = serv_dock_axis / serv_norm
+        targ_dock_axis = targ_dock_axis / targ_norm
+        
+        # Calculate the angle between the two vectors
+        dot_product = np.clip(np.dot(serv_dock_axis, targ_dock_axis), -1.0, 1.0)
+        angle_error = np.arccos(dot_product)
+        
+        # Calculate the axis to rotate around (direction of correction)
+        error_axis = np.cross(serv_dock_axis, targ_dock_axis)
+        axis_norm = np.linalg.norm(error_axis)
+        
+        # If axes are nearly aligned or anti-aligned, the cross product is near zero
+        if axis_norm < 1e-6:
+            if dot_product > 0:
+                # Nearly aligned already
+                return angle_error, np.zeros(3)
+            else:
+                # Anti-aligned (need 180° rotation)
+                # Choose any perpendicular axis (e.g., using the UP vector as reference)
+                world_up = np.array([0.0, 0.0, 1.0])
+                error_axis = np.cross(serv_dock_axis, world_up)
+                axis_norm = np.linalg.norm(error_axis)
+                
+                # If still having issues (rare, but possible)
+                if axis_norm < 1e-6:
+                    world_right = np.array([1.0, 0.0, 0.0])
+                    error_axis = np.cross(serv_dock_axis, world_right)
+                    axis_norm = np.linalg.norm(error_axis)
+        
+        # Normalize the axis vector
+        error_axis = error_axis / axis_norm
+        
+        return angle_error, error_axis
 
 
     def _calculate_orientation_error(self): # Add more checks
@@ -794,6 +850,7 @@ class SatelliteMARLEnv(ParallelEnv):
             relative_vel_world = corrected_data["target_vel"] - corrected_data["servicer_vel"]
             relatice_quat_world = corrected_data["target_quat"] - corrected_data["servicer_quat"]
             relative_ang_vel_world = corrected_data["target_ang_vel"] - corrected_data["servicer_ang_vel"]
+            orient_err, orient_guide_axis = self._calculate_orientation_guidance()
 
             # Assemble observation list using corrected data
             if agent == env_config.SERVICER_AGENT_ID:
@@ -801,7 +858,7 @@ class SatelliteMARLEnv(ParallelEnv):
                              relatice_quat_world, relative_ang_vel_world,np.array([dock_dist]) ]
             elif agent == env_config.TARGET_AGENT_ID:
                 obs_list = [ -relative_pos_world, -relative_vel_world,
-                             -relatice_quat_world, -relative_ang_vel_world,np.array([dock_dist]) ]
+                             -relatice_quat_world, -relative_ang_vel_world,np.array([dock_dist,orient_err]),orient_guide_axis ]
             else:
                 logger.error(f"Unknown agent ID '{agent}' requested for observation.")
                 return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
