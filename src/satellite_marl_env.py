@@ -635,6 +635,7 @@ class SatelliteMARLEnv(ParallelEnv):
         safe_orient = max(0, min(np.pi, orientation_error)) # Already clamped 0..pi
         potential_dist = 0.0
         orient_err, orient_guide_axis = self._calculate_orientation_guidance()
+        close_proximity = 0.3
     
             # Basic reward inversely proportional to orientation error
             # Convert from [0,π] to [1,0] range
@@ -656,10 +657,11 @@ class SatelliteMARLEnv(ParallelEnv):
             logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, ClosingRate={safe_closing_rate}). Using 0.")
             potential_vel = 0.0
 
-        potential_orient = -Wo * align
+        potential_orient = (-Wo * align)
         if not np.isfinite(potential_orient):
              logger.error(f"Potential calc: Non-finite orientation potential {potential_orient} (Wo={Wo}, Orient={safe_orient}). Using 0.")
              potential_orient = 0.0
+        
 
         potential = potential_dist + potential_vel + potential_orient
         # Potential can be very negative if far away, but shouldn't explode positively
@@ -817,13 +819,37 @@ class SatelliteMARLEnv(ParallelEnv):
             if not np.isfinite(shaping_reward_servicer):
                 logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated. γ={gamma}, Φ(s')={current_potential_servicer}, Φ(s)={safe_prev_potential}. Setting to 0. !!!")
                 shaping_reward_servicer = 0.0
-            
 
             rewards[env_config.SERVICER_AGENT_ID] += shaping_reward_servicer
             logger.debug(f"Step {self.steps}: Shaping Reward (Servicer) = {shaping_reward_servicer:.4f}")
+            close_proximity_threshold = 0.5  # 50cm
+    
+            if dist < close_proximity_threshold:
+                # Calculate how much orientation has improved since last step
+                # A positive value means orientation is better than before
+                prev_orient_err = getattr(self, 'prev_orientation_error', orient_err)
+                orient_improvement = prev_orient_err - orient_err
+                
+                # Only reward actual improvements
+                if orient_improvement > 0:
+                    # Scale the reward based on proximity (more reward when closer)
+                    proximity_factor = 1.0 - (dist / close_proximity_threshold)
+                    alignment_improvement_reward = 10.0 * orient_improvement * proximity_factor
+                    
+                    # Apply to both agents
+                    for agent in self.possible_agents:
+                        rewards[agent] += alignment_improvement_reward
+                    
+                    logger.debug(f"Applied alignment improvement reward: {alignment_improvement_reward:.2f} (improvement={orient_improvement:.3f}, prox_factor={proximity_factor:.2f})")
+            
+            # Store current orientation error for next step comparison
+            self.prev_orientation_error = orient_err
+    
+            
 
             # --- Action Cost Penalty ---
             for agent_id in self.possible_agents:
+                    # --- Action Cost Penalty ---
                  action_cost_weight = env_config.REWARD_WEIGHT_ACTION_COST # Default
                  if env_config.COMPETITIVE_MODE: pass # Add competitive logic later if needed
 
