@@ -10,35 +10,47 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- Reward Clipping Range (Keep as is or adjust if needed) ---
-REWARD_CLIP_MIN = -100.0
+REWARD_CLIP_MIN = -10000.0
 REWARD_CLIP_MAX = env_config.REWARD_DOCKING_SUCCESS + 100
 
 # --- Observation Clipping Range (Tighter) ---
 # Base clipping on OOB distance plus some margin, maybe velocity limits?
 # Example: Clip positions based on OOB distance * 1.5
 # Velocities might need different bounds if they can realistically get very high.
-OBS_POS_BOUND = env_config.OUT_OF_BOUNDS_DISTANCE * 1.5 # e.g., 15.0
+OBS_POS_BOUND = env_config.OUT_OF_BOUNDS_DISTANCE * 2.5 # e.g., 15.0
 OBS_VEL_BOUND = 10.0 # Example velocity bound (adjust based on expected speeds)
 OBS_OTHER_BOUND = 10.0 # Bound for quat components (already normalized) and ang_vel
-
+OBS_POS_BOUND = env_config.OUT_OF_BOUNDS_DISTANCE * 2.5 # Looser: e.g., 15.0
+OBS_VEL_BOUND = 5.0 # Looser
+OBS_ANG_VEL_BOUND = 10.0 # Bound for ang_vel
+OBS_QUAT_BOUND = 1.0 # Quaternions are normalized to unit length
 # Define separate bounds for different parts of the observation vector if needed
 # Assuming obs structure: [rel_pos(3), rel_vel(3), own_quat(4), own_ang_vel(3)]
 OBS_CLIP_LOW = np.array(
-    [-OBS_POS_BOUND]*3 + [-OBS_VEL_BOUND]*3 + [-OBS_OTHER_BOUND]*4 + [-OBS_OTHER_BOUND]*3,
+    ([-OBS_POS_BOUND]*3) + \
+    ([-OBS_VEL_BOUND]*3) + \
+    ([-OBS_QUAT_BOUND]*4) + \
+    ([-OBS_ANG_VEL_BOUND]*3) + \
+    ([-OBS_QUAT_BOUND]*4), # Bounds for relative quaternion
     dtype=np.float32
 )
 OBS_CLIP_HIGH = np.array(
-    [OBS_POS_BOUND]*3 + [OBS_VEL_BOUND]*3 + [OBS_OTHER_BOUND]*4 + [OBS_OTHER_BOUND]*3,
+    ([OBS_POS_BOUND]*3) + \
+    ([OBS_VEL_BOUND]*3) + \
+    ([OBS_QUAT_BOUND]*4) + \
+    ([OBS_ANG_VEL_BOUND]*3) + \
+    ([OBS_QUAT_BOUND]*4), # Bounds for relative quaternion
     dtype=np.float32
 )
+# Ma
 # Make sure the bounds match the observation dimension
 expected_obs_dim = env_config.OBS_DIM_PER_AGENT
-if OBS_CLIP_LOW.shape[0] != expected_obs_dim or OBS_CLIP_HIGH.shape[0] != expected_obs_dim:
-    logger.error(f"FATAL: Observation clipping bounds shape mismatch! Expected {expected_obs_dim}, Got Low={OBS_CLIP_LOW.shape}, High={OBS_CLIP_HIGH.shape}. Check OBS structure assumption.")
-    # Fallback to simple scalar clipping if shape is wrong
-    OBS_CLIP_LOW = -100.0 # Simpler fallback bound
-    OBS_CLIP_HIGH = 100.0
-    logger.warning(f"Using fallback scalar observation clipping: [{OBS_CLIP_LOW}, {OBS_CLIP_HIGH}]")
+# if OBS_CLIP_LOW.shape[0] != expected_obs_dim or OBS_CLIP_HIGH.shape[0] != expected_obs_dim:
+#     logger.error(f"FATAL: Observation clipping bounds shape mismatch! Expected {expected_obs_dim}, Got Low={OBS_CLIP_LOW.shape}, High={OBS_CLIP_HIGH.shape}. Check OBS structure assumption.")
+#     # Fallback to simple scalar clipping if shape is wrong
+#     OBS_CLIP_LOW = -100.0 # Simpler fallback bound
+#     OBS_CLIP_HIGH = 100.0
+#     logger.warning(f"Using fallback scalar observation clipping: [{OBS_CLIP_LOW}, {OBS_CLIP_HIGH}]")
 
 
 class RllibSatelliteEnv(MultiAgentEnv):
@@ -101,7 +113,10 @@ class RllibSatelliteEnv(MultiAgentEnv):
             #      logger.debug(f"Reset obs for {agent_id} clipped. Orig Max/Min: {max_orig:.2f}/{min_orig:.2f}, Clipped Max/Min: {max_clip:.2f}/{min_clip:.2f}")
 
             # processed_observations[agent_id] = clipped_obs.astype(np.float32)
-            processed_observations[agent_id] = obs.astype(np.float32)
+            #processed_observations[agent_id] = obs.astype(np.float32)
+            clipped_obs = np.clip(obs, OBS_CLIP_LOW, OBS_CLIP_HIGH) # Re-enable line
+# ...
+            processed_observations[agent_id] = clipped_obs.astype(np.float32) # Use clipped
 
         logger.debug(f"Wrapper: Processed reset observations keys: {list(processed_observations.keys())}")
         return processed_observations, infos
@@ -185,7 +200,10 @@ class RllibSatelliteEnv(MultiAgentEnv):
             #        logger.debug(f"Step obs for {agent_id} [Step {self.step_count}] clipped. Orig Max/Min: {max_orig:.2f}/{min_orig:.2f}, Clipped Max/Min: {max_clip:.2f}/{min_clip:.2f}")
 
             #  processed_observations[agent_id] = clipped_obs.astype(np.float32)
-             processed_observations[agent_id] = obs.astype(np.float32)
+             #processed_observations[agent_id] = obs.astype(np.float32)
+             clipped_obs = np.clip(obs, OBS_CLIP_LOW, OBS_CLIP_HIGH) # Re-enable line
+# ...
+             processed_observations[agent_id] = clipped_obs.astype(np.float32) # Use clipped
         # --- Process Dones (Keep robust logic) ---
         final_terminations = {aid: terminations.get(aid, False) for aid in self._agent_ids}
         final_truncations = {aid: truncations.get(aid, False) for aid in self._agent_ids}

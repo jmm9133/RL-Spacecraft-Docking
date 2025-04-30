@@ -51,6 +51,7 @@ class SatelliteMARLEnv(ParallelEnv):
 
     def __init__(self, render_mode=None, **kwargs): # Keep as is
         super().__init__()
+        self.prev_dist = None
 
         xml_path = os.path.abspath(env_config.XML_FILE_PATH)
         if not os.path.exists(xml_path):
@@ -200,6 +201,9 @@ class SatelliteMARLEnv(ParallelEnv):
         # --- Compute initial state and PBRS ---
         try:
             mujoco.mj_forward(self.model, self.data)
+            dist, _, _ = self._get_current_state_metrics()
+            self.prev_dist = dist
+
             logger.debug("Initial mj_forward() completed after randomization.")
             dist, rel_vel_mag, orient_err = self._get_current_state_metrics() # Get metrics AFTER forward
             self.prev_potential_servicer = self._calculate_potential(dist, rel_vel_mag, orient_err)
@@ -553,10 +557,13 @@ class SatelliteMARLEnv(ParallelEnv):
              potential_dist = 0.0
 
         # Determine gate factor based on distance
-        if safe_dist < GATE_DIST:
-            apply_factor = 1.0 # Apply full penalty when close
-        else:
-            apply_factor = GATE_FACTOR # Apply reduced penalty when far
+        # if safe_dist < GATE_DIST:
+        #     apply_factor = 1.0 # Apply full penalty when close
+        # else:
+        #     apply_factor = GATE_FACTOR # Apply reduced penalty when far
+        # smooth gate: ≈1 when dist≲0.5 m, ≈0 when dist≳0.8 m
+        steepness = 8.0
+        apply_factor = 1.0 / (1.0 + np.exp(  steepness*(safe_dist - GATE_DIST)  ))
 
         # Calculate raw penalties and apply gate factor
         raw_potential_vel = -Wv * safe_vel
@@ -574,7 +581,12 @@ class SatelliteMARLEnv(ParallelEnv):
 
         potential = potential_dist + potential_vel + potential_orient
         potential = np.clip(potential, -1e6, +1e6) # Keep clipping for safety
+        penalty_dist    =  Wd * safe_dist
+        penalty_vel     =  Wv * safe_vel     * apply_factor
+        penalty_orient  =  Wo * safe_orient  * apply_factor
 
+        potential = env_config.POTENTIAL_MAX \
+                    - (penalty_dist + penalty_vel + penalty_orient)
         if not np.isfinite(potential):
             logger.error(f"!!! FINAL POTENTIAL Φ={potential} IS NON-FINITE (Step {self.steps}). Components: D={potential_dist}, V={potential_vel}, O={potential_orient}. INPUTS: Dist={distance}, Vel={rel_vel_mag}, Orient={orientation_error}. CLAMPING TO 0 !!!")
             return 0.0 # Return neutral potential on error
@@ -681,7 +693,9 @@ class SatelliteMARLEnv(ParallelEnv):
                 # Ensure previous potential is finite (might be inf/nan from reset if start was bad)
                 safe_prev_potential = np.nan_to_num(self.prev_potential_servicer, nan=0.0, posinf=0.0, neginf=0.0)
                 
-                raw_shaping_reward = gamma * current_potential_servicer - safe_prev_potential
+                #raw_shaping_reward = gamma * current_potential_servicer - safe_prev_potential
+                raw_shaping_reward = self.prev_potential_servicer - gamma * current_potential_servicer
+
                 MAX_SHAPING_REWARD_MAGNITUDE = 50.0
                 shaping_reward_servicer = np.clip(raw_shaping_reward, -MAX_SHAPING_REWARD_MAGNITUDE, MAX_SHAPING_REWARD_MAGNITUDE)
                 if not np.isfinite(shaping_reward_servicer):
@@ -702,8 +716,8 @@ class SatelliteMARLEnv(ParallelEnv):
                 if not np.isfinite(shaping_reward_servicer):
                     logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated. Setting to 0. !!!")
                     shaping_reward_servicer = 0.0
-                for aid in rewards:
-                    rewards[aid] *= 0.01   # now everything is in a ~[-50,+50] range
+                # for aid in rewards:
+                #     rewards[aid] *= 0.01   # now everything is in a ~[-50,+50] range
             # Add PBRS reward (potentially 0 if disabled) to servicer
             rewards[env_config.SERVICER_AGENT_ID] += shaping_reward_servicer
             logger.debug(f"Step {self.steps}: Shaping Reward (Servicer) = {shaping_reward_servicer:.4f}")
@@ -1001,9 +1015,24 @@ class SatelliteMARLEnv(ParallelEnv):
 
                   force_scale = getattr(env_config, f"ACTION_FORCE_SCALING_{agent.upper()}", env_config.ACTION_FORCE_SCALING)
                   torque_scale = getattr(env_config, f"ACTION_TORQUE_SCALING_{agent.upper()}", env_config.ACTION_TORQUE_SCALING)
-                  force = action[:3] * force_scale
-                  torque = action[3:] * torque_scale
-                  force_torque_6d = np.concatenate([force, torque])
+
+                   # get the servicer’s quaternion (w,x,y,z) from qpos
+                  qpos_adr = self.joint_qpos_adr[agent]
+                  quat_wxyz = self.data.qpos[qpos_adr+3 : qpos_adr+7]
+                   # convert to xyzw for scipy
+                  quat_xyzw = [quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]]
+                  rot = R.from_quat(quat_xyzw).as_matrix()
+
+                   # now rotate the *local* action vector into world frame
+                  local_force = action[:3] * force_scale
+                  world_force = rot @ local_force
+ 
+                  local_torque = action[3:] * torque_scale
+                  world_torque = rot @ local_torque  # if you want body‐frame torques
+
+                  force_torque_6d = np.concatenate([world_force, world_torque])
+
+
 
                   if not np.all(np.isfinite(force_torque_6d)):
                        logger.error(f"NaN or Inf detected in *SCALED* action for agent {agent} at step {self.steps}. RawAction={action}, Scaled={force_torque_6d}. Applying zero.")

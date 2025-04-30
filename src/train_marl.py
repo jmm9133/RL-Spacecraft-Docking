@@ -25,7 +25,7 @@ from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
 from . import config as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 600
+TRAIN_ITERATIONS = 540
 CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
@@ -437,13 +437,20 @@ if __name__ == "__main__":
                 #rollout_fragment_length=rollout_fragment_length_estimate,
                 rollout_fragment_length="auto",
                 observation_filter=None,
+                batch_mode="complete_episodes",
                 #observation_filter="MeanStdFilter",
                 num_envs_per_env_runner=1,
             )
             .training(
                 gamma=env_config.POTENTIAL_GAMMA,
                 lambda_=0.95,
-                lr=1e-5,
+                #lr=3e-5,
+                lr=[
+                    [0,         1e-4],   # at timestep=0,  lr=1e-4
+                    [5_000_000, 5e-5],   # at timestep=5M, lr→5e-5
+                    [15_000_000,3e-5],   # at timestep=15M,lr→3e-5
+                ],
+                #normalize_rewards=True, # ADD THIS LINE               
                 #train_batch_size=effective_train_batch_size,
                 train_batch_size=16384,
                 model={
@@ -454,13 +461,41 @@ if __name__ == "__main__":
                 optimizer={},
                 num_epochs=3, # Renamed from num_sgd_iter
                 clip_param=0.2,
-                vf_clip_param=100.0,
-                entropy_coeff=0.005,
+                #vf_clip_param=200.0,
+                entropy_coeff=0.0005,
+                #vf_loss_coeff=1.0, # Default is often 0.5, try increasing
                 kl_coeff=0.2,
                 kl_target=0.01,
                 grad_clip=0.5,
                 use_gae=True,
+                            # ----- MODEL CHANGES FOR LSTM -----
+                # model={
+                #     # Specify LSTM usage
+                #     "use_lstm": True,
+                #     "max_seq_len": 900,  # Default sequence length for LSTM, can be tuned
+                #     "lstm_cell_size": 256, # Default hidden size for LSTM, can be tuned
+
+                #     # Feed previous action into LSTM? Often useful.
+                #     "lstm_use_prev_action": True,
+                #     # Feed previous reward? Usually False.
+                #     "lstm_use_prev_reward": True,
+
+                #     # FC layers BEFORE the LSTM. Input obs goes here first.
+                #     # Keep size reasonable, e.g., [128] or [256, 128]
+                #     "fcnet_hiddens": [256, 128],
+
+                #     # Activation for pre-LSTM FC layers
+                #     "fcnet_activation": "relu",
+
+                #     # Value function shares LSTM and pre-LSTM layers? Highly recommended.
+                #     "vf_share_layers": True,
+
+                #     # FC layers AFTER the LSTM (usually not needed when vf_share_layers=True)
+                #     # "post_fcnet_hiddens": [],
+                # },
+                # ----- END MODEL CHANGES -----
             )
+
             .multi_agent(
                 policies=policies,
                 policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
@@ -485,6 +520,8 @@ if __name__ == "__main__":
                      explore=False,
                      #observation_filter="MeanStdFilter",
                      observation_filter=None,
+                                         # IMPORTANT: Evaluation needs LSTM settings too if model used
+                     model={"use_lstm": True}
                 )
             )
             .reporting(
