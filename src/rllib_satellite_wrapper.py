@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- Reward Clipping Range (Keep as is or adjust if needed) ---
-REWARD_CLIP_MIN = -100.0
+REWARD_CLIP_MIN = -10000.0
 REWARD_CLIP_MAX = env_config.REWARD_DOCKING_SUCCESS + 100
 
 # --- Observation Clipping Range (Tighter) ---
@@ -24,11 +24,11 @@ OBS_OTHER_BOUND = 10.0 # Bound for quat components (already normalized) and ang_
 # Define separate bounds for different parts of the observation vector if needed
 # Assuming obs structure: [rel_pos(3), rel_vel(3), own_quat(4), own_ang_vel(3)]
 OBS_CLIP_LOW = np.array(
-    [-OBS_POS_BOUND]*3 + [-OBS_VEL_BOUND]*3 + [-OBS_OTHER_BOUND]*4 + [-OBS_OTHER_BOUND]*3,
+    [-OBS_POS_BOUND]*3 + [-OBS_VEL_BOUND]*3 + [-OBS_OTHER_BOUND]*4 + [-OBS_OTHER_BOUND]*3+[OBS_OTHER_BOUND],
     dtype=np.float32
 )
 OBS_CLIP_HIGH = np.array(
-    [OBS_POS_BOUND]*3 + [OBS_VEL_BOUND]*3 + [OBS_OTHER_BOUND]*4 + [OBS_OTHER_BOUND]*3,
+    [OBS_POS_BOUND]*3 + [OBS_VEL_BOUND]*3 + [OBS_OTHER_BOUND]*4 + [OBS_OTHER_BOUND]*3+[OBS_OTHER_BOUND],
     dtype=np.float32
 )
 # Make sure the bounds match the observation dimension

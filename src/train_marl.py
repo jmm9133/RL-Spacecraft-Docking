@@ -22,14 +22,14 @@ import matplotlib.pyplot as plt
 
 from .rllib_satellite_wrapper import RllibSatelliteEnv
 from .satellite_marl_env import raw_env as satellite_pettingzoo_creator
-from . import config as env_config
+from . import config2 as env_config
 
 # --- Configuration ---
-TRAIN_ITERATIONS = 600
-CHECKPOINT_FREQ = 20
+TRAIN_ITERATIONS = 5000
+CHECKPOINT_FREQ = 50
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
-EVAL_EPISODES = 3 # Increase slightly for more stable eval score
+EVAL_EPISODES = 1 # Increase slightly for more stable eval score
 EVAL_MAX_STEPS = env_config.MAX_STEPS_PER_EPISODE
 # --- Add Plot configuration ---
 PLOT_FILENAME = "training_progress.png"
@@ -45,7 +45,7 @@ for handler in logging.root.handlers[:]:
     handler.close()
 
 # Configure root logger
-logging.basicConfig( level=logging.DEBUG,
+logging.basicConfig( level=logging.INFO,
     format="%(asctime)s [%(name)s:%(lineno)d] [%(levelname)s] %(message)s",
     handlers=[ logging.FileHandler(log_file), logging.StreamHandler(sys.stdout) ] )
 
@@ -417,6 +417,17 @@ if __name__ == "__main__":
 
     config = None
     algo = None
+    env_config_model = {
+        # Existing environment parameters
+        
+        # Reward normalization parameters
+        "normalize_rewards": True,
+        "reward_scaling": 0.01,  # Smaller scaling factor for large reward disparities
+        "reward_clip_after_norm": True,
+        "reward_norm_clip_min": -200.0,  # Wider clip range
+        "reward_norm_clip_max": 200.0,
+        "reward_history_window": 10000,  # Keep track of more rewards for better statistics
+    }
     try:
         num_workers = max(1, (cpu_count or 4) - 2)
         logger.info(f"Using {num_workers} environment runners (workers).")
@@ -430,12 +441,15 @@ if __name__ == "__main__":
 
         config = (
             PPOConfig()
-            .environment("satellite_marl", env_config={})
+            .environment("satellite_marl", env_config={},
+
+            )
             .framework("torch")
             .env_runners(
                 num_env_runners=num_workers,
                 #rollout_fragment_length=rollout_fragment_length_estimate,
                 rollout_fragment_length="auto",
+                batch_mode="complete_episodes",
                 observation_filter=None,
                 #observation_filter="MeanStdFilter",
                 num_envs_per_env_runner=1,
@@ -443,19 +457,19 @@ if __name__ == "__main__":
             .training(
                 gamma=env_config.POTENTIAL_GAMMA,
                 lambda_=0.95,
-                lr=1e-5,
+                lr=1e-4,
                 #train_batch_size=effective_train_batch_size,
                 train_batch_size=16384,
                 model={
                     "fcnet_hiddens": [128, 128],
                     "fcnet_activation": "relu",
                     "vf_share_layers": False,
+                    "free_log_std": True,
                 },
                 optimizer={},
-                num_epochs=3, # Renamed from num_sgd_iter
+                num_epochs=10, # Renamed from num_sgd_iter
                 clip_param=0.2,
-                vf_clip_param=100.0,
-                entropy_coeff=0.005,
+                vf_clip_param=10.0,
                 kl_coeff=0.2,
                 kl_target=0.01,
                 grad_clip=0.5,
@@ -470,7 +484,7 @@ if __name__ == "__main__":
             )
             .debugging(
                 log_level="WARN",
-                seed=np.random.randint(0, 10000),
+                seed=42,
             )
             .fault_tolerance(
                  restart_failed_env_runners=True
@@ -561,10 +575,13 @@ if __name__ == "__main__":
             timesteps_total = result.get("timesteps_total", result.get("num_env_steps_sampled_lifetime", 0))
             timesteps_this_iter = timesteps_total - last_total_steps
             last_total_steps = timesteps_total
+            #episode_raw_rewards = result["infos"]["SEVICER"]["episode_raw_rewards"]
+            #print(f"Episode Raw Rewards: {episode_raw_rewards}")
 
             sampler_results = result.get("sampler_results", result.get("env_runners", {}))
             ep_reward_mean_sample = sampler_results.get("episode_reward_mean", float('nan'))
             ep_len_mean_sample = sampler_results.get("episode_len_mean", float('nan'))
+           
             all_attributes = dir(sampler_results)
             logger.info(f"  all attributes: {all_attributes}")        
             #logger.info(f"train() returned keys: {list(result.keys())}")

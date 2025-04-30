@@ -13,7 +13,7 @@ import logging
 from pettingzoo import ParallelEnv
 
 # Import configuration (ensure config.py is updated for PBRS and random init)
-from . import config2 as env_config
+from . import config as env_config
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
@@ -168,7 +168,6 @@ class SatelliteMARLEnv(ParallelEnv):
         serv_vel = self.np_random.uniform(low=env_config.INITIAL_VEL_RANGE[0], high=env_config.INITIAL_VEL_RANGE[1])
         serv_ang_vel = self.np_random.uniform(low=env_config.INITIAL_ANG_VEL_RANGE[0], high=env_config.INITIAL_ANG_VEL_RANGE[1])
         serv_quat = self.np_random.randn(4); serv_quat /= np.linalg.norm(serv_quat)
-        serv_quat[0] = 0.0; serv_quat[1] = 0.0; serv_quat[2] = 0.0; serv_quat[3] = 1.0 # Fixed orientation
 
         self.data.qpos[qpos_serv_start:qpos_serv_start+3] = serv_pos
         self.data.qpos[qpos_serv_start+3:qpos_serv_start+7] = serv_quat
@@ -191,8 +190,6 @@ class SatelliteMARLEnv(ParallelEnv):
         targ_vel = self.np_random.uniform(low=env_config.INITIAL_VEL_RANGE[0], high=env_config.INITIAL_VEL_RANGE[1])
         targ_ang_vel = self.np_random.uniform(low=env_config.INITIAL_ANG_VEL_RANGE[0], high=env_config.INITIAL_ANG_VEL_RANGE[1])
         targ_quat = self.np_random.randn(4); targ_quat /= np.linalg.norm(targ_quat)
-        #targ_quat[0] = 0.0; targ_quat[1] = 0.0; targ_quat[2] = 0.0; targ_quat[3] = 1.0 # Fixed orientation
-        targ_quat = [0.0, 0.7071, 0.0, 0.7071]
 
         self.data.qpos[qpos_targ_start:qpos_targ_start+3] = targ_pos
         self.data.qpos[qpos_targ_start+3:qpos_targ_start+7] = targ_quat
@@ -203,9 +200,9 @@ class SatelliteMARLEnv(ParallelEnv):
         try:
             mujoco.mj_forward(self.model, self.data)
             logger.debug("Initial mj_forward() completed after randomization.")
-            dist, rel_vel_mag,closing_rate, orient_err = self._get_current_state_metrics() # Get metrics AFTER forward
-            self.prev_potential_servicer = self._calculate_potential(dist, rel_vel_mag,closing_rate, orient_err)
-            self.prev_potential_target = self._calculate_potential(dist, rel_vel_mag,closing_rate, orient_err) # Placeholder
+            dist, rel_vel_mag, orient_err = self._get_current_state_metrics() # Get metrics AFTER forward
+            self.prev_potential_servicer = self._calculate_potential(dist, rel_vel_mag, orient_err)
+            self.prev_potential_target = self._calculate_potential(dist, rel_vel_mag, orient_err) # Placeholder
             self.prev_docking_distance = dist if np.isfinite(dist) else env_config.OUT_OF_BOUNDS_DISTANCE * 2
             logger.debug(f"Reset: Initial State Metrics: Dist={dist:.4f}, RelVel={rel_vel_mag:.4f}, OrientErr={orient_err:.4f}")
             logger.debug(f"Reset: Initialized prev_potential_servicer = {self.prev_potential_servicer:.4f}")
@@ -389,7 +386,7 @@ class SatelliteMARLEnv(ParallelEnv):
                 logger.warning(f"Attempted to record final stats for invalid agent ID {agent_id}.")
 
 
-    ''' def _get_current_state_metrics(self): # Add more nan_to_num/logging
+    def _get_current_state_metrics(self): # Add more nan_to_num/logging
         """Helper to get distance, relative velocity mag, and orientation error."""
         dist = float('inf')
         rel_vel_mag = float('inf')
@@ -446,77 +443,8 @@ class SatelliteMARLEnv(ParallelEnv):
         rel_vel_mag = np.nan_to_num(rel_vel_mag, nan=50.0, posinf=50.0, neginf=0.0) # Vel mag shouldn't be negative
         orient_err = np.nan_to_num(orient_err, nan=np.pi, posinf=np.pi, neginf=0.0) # Orient err 0 to pi
 
-        return dist, rel_vel_mag, orient_err'''
+        return dist, rel_vel_mag, orient_err
 
-    def _get_current_state_metrics(self): # Add more nan_to_num/logging
-        """Helper to get distance, relative velocity mag, approach rate, and orientation error."""
-        dist = float('inf')
-        rel_vel_mag = float('inf')
-        closing_rate = 0.0  # Positive = approaching, Negative = receding
-        orient_err = np.pi  # Max error default
-
-        try:
-            # --- Distance ---
-            p_s = self.data.site_xpos[self.site_ids["servicer_dock"]]
-            p_t = self.data.site_xpos[self.site_ids["target_dock"]]
-            if not np.all(np.isfinite(p_s)) or not np.all(np.isfinite(p_t)):
-                logger.warning(f"Step {self.steps}: NaN/Inf in site positions. Serv={p_s}, Targ={p_t}")
-                dist = env_config.OUT_OF_BOUNDS_DISTANCE * 2
-            else:
-                approach_vec = p_t - p_s
-                dist = float(np.linalg.norm(approach_vec))
-                if not np.isfinite(dist):
-                    logger.warning(f"Step {self.steps}: Non-finite distance ({dist}).")
-                    dist = env_config.OUT_OF_BOUNDS_DISTANCE * 2
-
-            # --- Relative Velocity ---
-            qv_s_adr = self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]
-            qv_t_adr = self.joint_qvel_adr[env_config.TARGET_AGENT_ID]
-            v_s = self.data.qvel[qv_s_adr:qv_s_adr+3]
-            v_t = self.data.qvel[qv_t_adr:qv_t_adr+3]
-            if not np.all(np.isfinite(v_s)) or not np.all(np.isfinite(v_t)):
-                logger.warning(f"Step {self.steps}: NaN/Inf in velocities. Serv={v_s}, Targ={v_t}")
-                rel_vel_mag = 50.0
-            else:
-                rel_vel_vec = v_s - v_t
-                rel_vel_mag = float(np.linalg.norm(rel_vel_vec))
-                if not np.isfinite(rel_vel_mag):
-                    logger.warning(f"Step {self.steps}: Non-finite rel_vel_mag ({rel_vel_mag}).")
-                    rel_vel_mag = 50.0
-
-                # --- Closing Rate ---
-                if dist > 1e-6:
-                    unit_approach_vec = approach_vec / dist
-                    closing_rate = -np.dot(rel_vel_vec, unit_approach_vec)  # Positive if approaching
-                else:
-                    closing_rate = 0.0  # Already docked or nearly so
-
-            # --- Orientation Error ---
-            orient_err = self._calculate_orientation_error()
-            if not np.isfinite(orient_err):
-                logger.warning(f"Step {self.steps}: Non-finite orientation error ({orient_err}).")
-                orient_err = np.pi
-
-        except IndexError:
-            logger.error(f"IndexError getting state metrics at step {self.steps}.")
-            dist = env_config.OUT_OF_BOUNDS_DISTANCE * 2
-            rel_vel_mag = 50.0
-            closing_rate = 0.0
-            orient_err = np.pi
-        except Exception as e:
-            logger.exception(f"Error getting state metrics at step {self.steps}: {e}")
-            dist = env_config.OUT_OF_BOUNDS_DISTANCE * 2
-            rel_vel_mag = 50.0
-            closing_rate = 0.0
-            orient_err = np.pi
-
-        # Final clamping
-        dist = np.nan_to_num(dist, nan=env_config.OUT_OF_BOUNDS_DISTANCE*2, posinf=env_config.OUT_OF_BOUNDS_DISTANCE*2, neginf=0.0)
-        rel_vel_mag = np.nan_to_num(rel_vel_mag, nan=50.0, posinf=50.0, neginf=0.0)
-        closing_rate = np.nan_to_num(closing_rate, nan=0.0, posinf=50.0, neginf=-50.0)
-        orient_err = np.nan_to_num(orient_err, nan=np.pi, posinf=np.pi, neginf=0.0)
-
-        return dist, rel_vel_mag, closing_rate, orient_err
 
     def _calculate_orientation_error(self): # Add more checks
         """Calculates the angular error (in radians) between docking ports' target axes."""
@@ -562,7 +490,7 @@ class SatelliteMARLEnv(ParallelEnv):
             return np.pi
 
 
-    def _calculate_potential(self, distance, rel_vel_mag, closing_rate,orientation_error): # Add logging/checks
+    def _calculate_potential(self, distance, rel_vel_mag, orientation_error): # Add logging/checks
         """Calculates the potential function Φ based on current state. Higher is better."""
         Wd = env_config.POTENTIAL_WEIGHT_DISTANCE
         Wv = env_config.POTENTIAL_WEIGHT_VELOCITY
@@ -574,26 +502,22 @@ class SatelliteMARLEnv(ParallelEnv):
         # EPS = 0
 
         # Use safe, clamped values from _get_current_state_metrics
-        safe_dist = max(0.01, distance) # Already clamped non-negative
+        safe_dist = max(0, distance) # Already clamped non-negative
         safe_vel = max(0, rel_vel_mag) # Already clamped non-negative
         safe_orient = max(0, min(np.pi, orientation_error)) # Already clamped 0..pi
         potential_dist = 0.0
 
         # --- CHANGE START: Use Linear Negative Distance Potential ---
-        potential_dist = Wd * np.exp(-safe_dist / 1.5)
+        potential_dist = -Wd * safe_dist
         if not np.isfinite(potential_dist):
              logger.error(f"Potential calc: Non-finite distance potential {potential_dist} (Wd={Wd}, Dist={safe_dist}). Using 0.")
              potential_dist = 0.0
         # --- CHANGE END ---
 
-        '''potential_vel = -Wv * safe_vel
+        potential_vel = -Wv * safe_vel
         if not np.isfinite(potential_vel):
              logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, Vel={safe_vel}). Using 0.")
-             potential_vel = 0.0'''
-        potential_vel =  Wv * np.tanh(closing_rate)  # Wv > 0 encourages approach
-        if not np.isfinite(potential_vel):
-            logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, ClosingRate={safe_closing_rate}). Using 0.")
-            potential_vel = 0.0
+             potential_vel = 0.0
 
         potential_orient = -Wo * safe_orient
         if not np.isfinite(potential_orient):
@@ -624,7 +548,7 @@ class SatelliteMARLEnv(ParallelEnv):
         infos = {a: {} for a in self.possible_agents}
 
         # --- 1. Get Current State Metrics (Robust method) ---
-        dist, rel_vel_mag,closing_rate, orient_err = self._get_current_state_metrics()
+        dist, rel_vel_mag, orient_err = self._get_current_state_metrics()
         logger.debug(f"Step {self.steps} Rewards State: Dist={dist:.4f}, RelVel={rel_vel_mag:.4f}, OrientErr={orient_err:.4f}")
 
         # --- 2. Check Terminal Conditions ---
@@ -693,7 +617,7 @@ class SatelliteMARLEnv(ParallelEnv):
         # --- 4. Calculate Shaping Rewards (PBRS + Action Cost) - Only if episode NOT over ---
         if not episode_over:
             # --- PBRS Calculation (Uses robust _calculate_potential) ---
-            current_potential_servicer = self._calculate_potential(dist, rel_vel_mag,closing_rate, orient_err)
+            current_potential_servicer = self._calculate_potential(dist, rel_vel_mag, orient_err)
             logger.debug(f"Step {self.steps}: Potential Φ(s')_serv = {current_potential_servicer:.4f}, Prev Φ(s)_serv = {self.prev_potential_servicer:.4f}")
 
             gamma = env_config.POTENTIAL_GAMMA
@@ -703,7 +627,7 @@ class SatelliteMARLEnv(ParallelEnv):
             shaping_reward_servicer = gamma * current_potential_servicer - safe_prev_potential
             # --- CHANGE START: Add Direct Clipping to Shaping Reward ---
                 # Define a maximum magnitude for the shaping reward per step to prevent explosions
-            MAX_SHAPING_REWARD_MAGNITUDE = 5000.0 # Tune this value if needed (e.g., 20, 50, 100)
+            MAX_SHAPING_REWARD_MAGNITUDE = 50.0 # Tune this value if needed (e.g., 20, 50, 100)
             clipped_shaping_reward = np.clip(shaping_reward_servicer, -MAX_SHAPING_REWARD_MAGNITUDE, MAX_SHAPING_REWARD_MAGNITUDE)
 
                 # Optional: Log when clipping actually happens
@@ -713,8 +637,8 @@ class SatelliteMARLEnv(ParallelEnv):
             shaping_reward_servicer = clipped_shaping_reward # Use the clipped value
                 # --- CHANGE END ---
             # --- Inside your reward calc, after PBRS shaping ---
-            '''docking_bonus_active = 5.0  # Activate bonus when within 15 cm
-            docking_bonus_scale = 5.0  # Strength of bonus (tune if needed)
+            docking_bonus_active = 0.15  # Activate bonus when within 15 cm
+            docking_bonus_scale = 500.0  # Strength of bonus (tune if needed)
 
             if dist < docking_bonus_active:
                 bonus = docking_bonus_scale * (docking_bonus_active - dist)
@@ -722,36 +646,14 @@ class SatelliteMARLEnv(ParallelEnv):
                 logger.debug(f"Step {self.steps}: Applied docking proximity bonus {bonus:.2f} (dist={dist:.3f})")
 
             # --- Docking Alignment Bonus ---
-            alignment_bonus_active = 2.0  # radians (about 11 degrees)
-            alignment_bonus_scale = 3.0  # strength of bonus
-            docking_alignment_bonus_active = 0.15  # meters (15 cm)
+            alignment_bonus_active = 0.2  # radians (about 11 degrees)
+            alignment_bonus_scale = 300.0  # strength of bonus
 
 
-            if orient_err < alignment_bonus_active and dist < docking_alignment_bonus_active:
+            if orient_err < alignment_bonus_active:
                 bonus = alignment_bonus_scale * (alignment_bonus_active - orient_err)
                 shaping_reward_servicer += bonus
-                logger.debug(f"Step {self.steps}: Applied alignment bonus {bonus:.2f} (orient_err={orient_err:.3f})")'''
-            serv_ang_vel = self.data.qvel[self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]+3:
-                             self.joint_qvel_adr[env_config.SERVICER_AGENT_ID]+6]
-            targ_ang_vel = self.data.qvel[self.joint_qvel_adr[env_config.TARGET_AGENT_ID]+3:
-                                        self.joint_qvel_adr[env_config.TARGET_AGENT_ID]+6]
-
-            serv_ang_vel_mag = np.linalg.norm(serv_ang_vel)
-            targ_ang_vel_mag = np.linalg.norm(targ_ang_vel)
-
-            # Add strong penalties for excessive angular velocities
-            ang_vel_penalty_coefficient = 30.0  # Adjust as needed
-            max_acceptable_ang_vel = 0.5  # Adjust as needed
-
-            if serv_ang_vel_mag > max_acceptable_ang_vel:
-                ang_vel_penalty = -ang_vel_penalty_coefficient * (serv_ang_vel_mag - max_acceptable_ang_vel)
-                shaping_reward_servicer += ang_vel_penalty
-                logger.debug(f"Angular velocity penalty for servicer: {ang_vel_penalty:.4f}")
-
-            if targ_ang_vel_mag > max_acceptable_ang_vel:
-                ang_vel_penalty = -ang_vel_penalty_coefficient * (targ_ang_vel_mag - max_acceptable_ang_vel)
-                shaping_reward_servicer += ang_vel_penalty
-                logger.debug(f"Angular velocity penalty for target: {ang_vel_penalty:.4f}")
+                logger.debug(f"Step {self.steps}: Applied alignment bonus {bonus:.2f} (orient_err={orient_err:.3f})")
 
             if not np.isfinite(shaping_reward_servicer):
                 logger.error(f"!!! Step {self.steps}: Non-finite PBRS reward ({shaping_reward_servicer}) calculated. γ={gamma}, Φ(s')={current_potential_servicer}, Φ(s)={safe_prev_potential}. Setting to 0. !!!")
@@ -789,7 +691,7 @@ class SatelliteMARLEnv(ParallelEnv):
 
         # --- 5. Update Previous State for Next Step's PBRS ---
         # Use the potential calculated in this step (based on s') as the prev potential for next step
-        current_potential_servicer_end = self._calculate_potential(dist, rel_vel_mag,closing_rate, orient_err)
+        current_potential_servicer_end = self._calculate_potential(dist, rel_vel_mag, orient_err)
         self.prev_potential_servicer = current_potential_servicer_end # Already checked for finite
 
         if env_config.COMPETITIVE_MODE:
@@ -815,8 +717,8 @@ class SatelliteMARLEnv(ParallelEnv):
 
     # Add the get_reward_info function (Keep as is)
     def get_reward_info(self):
-        dist, rel_vel_mag,closing_rate, orient_err = self._get_current_state_metrics()
-        current_potential = self._calculate_potential(dist, rel_vel_mag,closing_rate, orient_err)
+        dist, rel_vel_mag, orient_err = self._get_current_state_metrics()
+        current_potential = self._calculate_potential(dist, rel_vel_mag, orient_err)
         reward_info = {
             "state_metrics": {"distance": dist,"relative_velocity": rel_vel_mag,"orientation_error": orient_err,},
             "potential": {"current": current_potential,"previous": self.prev_potential_servicer,"gamma": env_config.POTENTIAL_GAMMA,},
@@ -892,16 +794,14 @@ class SatelliteMARLEnv(ParallelEnv):
             relative_vel_world = corrected_data["target_vel"] - corrected_data["servicer_vel"]
             relatice_quat_world = corrected_data["target_quat"] - corrected_data["servicer_quat"]
             relative_ang_vel_world = corrected_data["target_ang_vel"] - corrected_data["servicer_ang_vel"]
-            target_ang_vel_world = corrected_data["target_ang_vel"]
-            servicer_ang_vel_world = corrected_data["servicer_ang_vel"]
 
             # Assemble observation list using corrected data
             if agent == env_config.SERVICER_AGENT_ID:
                 obs_list = [ relative_pos_world, relative_vel_world,
-                             relatice_quat_world, servicer_ang_vel_world,np.array([dock_dist]) ]
+                             relatice_quat_world, relative_ang_vel_world,np.array([dock_dist]) ]
             elif agent == env_config.TARGET_AGENT_ID:
                 obs_list = [ -relative_pos_world, -relative_vel_world,
-                             -relatice_quat_world, target_ang_vel_world,np.array([dock_dist]) ]
+                             -relatice_quat_world, -relative_ang_vel_world,np.array([dock_dist]) ]
             else:
                 logger.error(f"Unknown agent ID '{agent}' requested for observation.")
                 return np.zeros(env_config.OBS_DIM_PER_AGENT, dtype=np.float32)
@@ -970,7 +870,6 @@ class SatelliteMARLEnv(ParallelEnv):
                   torque_scale = getattr(env_config, f"ACTION_TORQUE_SCALING_{agent.upper()}", env_config.ACTION_TORQUE_SCALING)
                   force = action[:3] * force_scale
                   torque = action[3:] * torque_scale
-
                   force_torque_6d = np.concatenate([force, torque])
 
                   if not np.all(np.isfinite(force_torque_6d)):
