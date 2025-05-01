@@ -26,7 +26,7 @@ from . import config2 as env_config
 
 # --- Configuration ---
 TRAIN_ITERATIONS = 5000
-CHECKPOINT_FREQ = 20
+CHECKPOINT_FREQ = 25
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
 EVAL_EPISODES = 1 # Increase slightly for more stable eval score

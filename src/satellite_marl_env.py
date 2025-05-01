@@ -644,7 +644,9 @@ class SatelliteMARLEnv(ParallelEnv):
         # --- CHANGE START: Use Linear Negative Distance Potential ---
         EPS = 1e-8
         scale = .9  # Adjust to control steepness
-        potential_dist = Wd *(1/(safe_dist+EPS))
+        near_threshold = 1.0
+        alpha = np.clip(safe_dist / near_threshold, 0.0, 1.0)
+        potential_dist = alpha * (1.0 / (safe_dist + EPS) - safe_dist)
         if not np.isfinite(potential_dist):
              logger.error(f"Potential calc: Non-finite distance potential {potential_dist} (Wd={Wd}, Dist={safe_dist}). Using 0.")
              potential_dist = 0.0
@@ -809,7 +811,7 @@ class SatelliteMARLEnv(ParallelEnv):
 
             # Add strong penalties for excessive angular velocities
             ang_vel_penalty_coefficient = 30.0  # Adjust as needed
-            max_acceptable_ang_vel = 0.5  # Adjust as needed
+            max_acceptable_ang_vel = 1.0  # Adjust as needed
 
             if serv_ang_vel_mag > max_acceptable_ang_vel:
                 ang_vel_penalty = -ang_vel_penalty_coefficient * (serv_ang_vel_mag - max_acceptable_ang_vel)
