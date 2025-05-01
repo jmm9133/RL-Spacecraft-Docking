@@ -525,8 +525,9 @@ class SatelliteMARLEnv(ParallelEnv):
             - error_axis: Unit vector representing axis to rotate around for correction
         """
         # Get docking port orientations
-        serv_dock_mat = self.data.site_xmat[self.site_ids["servicer_dock"]].reshape(3, 3)
-        targ_dock_mat = self.data.site_xmat[self.site_ids["target_dock"]].reshape(3, 3)
+        serv_dock_mat = self.data.xmat[self.body_ids["servicer"]].reshape(3, 3)
+        targ_dock_mat = self.data.xmat[self.body_ids["target"]].reshape(3, 3)
+
         
         # Extract the docking axis (z-axis) from both ports
         serv_dock_axis = serv_dock_mat[:, 2]  # Z-axis of servicer dock
