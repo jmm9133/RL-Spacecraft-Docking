@@ -642,7 +642,9 @@ class SatelliteMARLEnv(ParallelEnv):
         align = max(0, 1.0 - orient_err / np.pi)
 
         # --- CHANGE START: Use Linear Negative Distance Potential ---
-        potential_dist = Wd * np.exp(-safe_dist / 1.5)
+        EPS = 1e-8
+        scale = .9  # Adjust to control steepness
+        potential_dist = Wd / (safe_dist / scale + 1)
         if not np.isfinite(potential_dist):
              logger.error(f"Potential calc: Non-finite distance potential {potential_dist} (Wd={Wd}, Dist={safe_dist}). Using 0.")
              potential_dist = 0.0
@@ -657,13 +659,16 @@ class SatelliteMARLEnv(ParallelEnv):
             logger.error(f"Potential calc: Non-finite velocity potential {potential_vel} (Wv={Wv}, ClosingRate={safe_closing_rate}). Using 0.")
             potential_vel = 0.0
 
-        potential_orient = (-Wo * align)
+        potential_orient = (Wo * align)
         if not np.isfinite(potential_orient):
              logger.error(f"Potential calc: Non-finite orientation potential {potential_orient} (Wo={Wo}, Orient={safe_orient}). Using 0.")
              potential_orient = 0.0
+        bonus = 0.0
+        if safe_dist < 0.1 and align > 0.9 and safe_vel < 0.05:
+            bonus = 100.0  # encourage high-precision terminal behavior
         
 
-        potential = potential_dist + potential_vel + potential_orient
+        potential = potential_dist + potential_vel + potential_orient + bonus
         # Potential can be very negative if far away, but shouldn't explode positively
         # Clip might still be useful if Wd is very large, keep default clipping range?
         potential = np.clip(potential, -1e6, +1e6) # Keep clipping for safety
@@ -822,7 +827,7 @@ class SatelliteMARLEnv(ParallelEnv):
 
             rewards[env_config.SERVICER_AGENT_ID] += shaping_reward_servicer
             logger.debug(f"Step {self.steps}: Shaping Reward (Servicer) = {shaping_reward_servicer:.4f}")
-            close_proximity_threshold = 0.5  # 50cm
+            close_proximity_threshold = 5  # 50cm
     
             if dist < close_proximity_threshold:
                 # Calculate how much orientation has improved since last step
@@ -1094,7 +1099,7 @@ class SatelliteMARLEnv(ParallelEnv):
                            logger.error(f"Render init error (human): {e}. Cannot render."); self.render_mode = None; return None
                  try:
                       mujoco.mj_forward(self.model, self.data) # Ensure latest state
-                      self.renderer.update_scene(self.data, camera="fixed_side")
+                      self.renderer.update_scene(self.data, camera="track_servicer")
                       pixels = self.renderer.render()
                       if pixels is not None: media.show_image(pixels); time.sleep(1.0 / self.metadata["render_fps"]); return None
                       else: logger.warning("MuJoCo renderer returned None (human)."); return None
