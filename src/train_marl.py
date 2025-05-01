@@ -26,7 +26,7 @@ from . import config2 as env_config
 
 # --- Configuration ---
 TRAIN_ITERATIONS = 5000
-CHECKPOINT_FREQ = 50
+CHECKPOINT_FREQ = 20
 RESULTS_DIR = "output/ray_results"
 LOG_DIR = "output/logs"
 EVAL_EPISODES = 1 # Increase slightly for more stable eval score
@@ -672,6 +672,7 @@ if __name__ == "__main__":
                 try:
                     logger.info(f"Attempting to save checkpoint at iteration {i+1}...")
                     checkpoint_result = algo.save(checkpoint_dir=RESULTS_DIR_ABS)
+                    run_evaluation_video(algo, satellite_pettingzoo_creator, num_episodes=EVAL_EPISODES, max_steps=EVAL_MAX_STEPS)
                     if checkpoint_result and checkpoint_result.checkpoint and checkpoint_result.checkpoint.path:
                          checkpoint_path = str(checkpoint_result.checkpoint.path)
                          last_checkpoint_iter = i

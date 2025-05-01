@@ -644,7 +644,7 @@ class SatelliteMARLEnv(ParallelEnv):
         # --- CHANGE START: Use Linear Negative Distance Potential ---
         EPS = 1e-8
         scale = .9  # Adjust to control steepness
-        potential_dist = Wd / (safe_dist / scale + 1)
+        potential_dist = Wd *(1/(safe_dist+EPS))
         if not np.isfinite(potential_dist):
              logger.error(f"Potential calc: Non-finite distance potential {potential_dist} (Wd={Wd}, Dist={safe_dist}). Using 0.")
              potential_dist = 0.0
@@ -753,7 +753,7 @@ class SatelliteMARLEnv(ParallelEnv):
                 if not terminations.get(agent, False): # Only truncate if not already terminated
                     truncations[agent] = True
                     # Small timeout penalty if not docked
-                    if not docked: rewards[agent] -= 500.0
+                    if not docked: rewards[agent] -= 50.0
                 infos[agent]['status'] = status # Update status to max_steps
 
         episode_over = terminate_episode or is_truncated
@@ -828,8 +828,8 @@ class SatelliteMARLEnv(ParallelEnv):
             rewards[env_config.SERVICER_AGENT_ID] += shaping_reward_servicer
             logger.debug(f"Step {self.steps}: Shaping Reward (Servicer) = {shaping_reward_servicer:.4f}")
             close_proximity_threshold = 5  # 50cm
-    
-            if dist < close_proximity_threshold:
+            orient_err, orient_guide_axis = self._calculate_orientation_guidance()
+            if dist < close_proximity_threshold and orient_err < .5:
                 # Calculate how much orientation has improved since last step
                 # A positive value means orientation is better than before
                 prev_orient_err = getattr(self, 'prev_orientation_error', orient_err)

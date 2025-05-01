@@ -42,9 +42,9 @@ MAX_STEPS_PER_EPISODE = 5000              # Maximum episode length
 
 # --- Reward Parameters ---
 # Terminal rewards
-REWARD_DOCKING_SUCCESS = 5000.0             # Reduced from 1000+ to be more proportional
-REWARD_COLLISION = -30.0                  # Reduced magnitude
-REWARD_OUT_OF_BOUNDS = -3000.0              # Reduced magnitude
+REWARD_DOCKING_SUCCESS = 500.0             # Reduced from 1000+ to be more proportional
+REWARD_COLLISION = -50.0                  # Reduced magnitude
+REWARD_OUT_OF_BOUNDS = -300.0              # Reduced magnitude
 
 # Action cost weight (control effort penalty)
 REWARD_WEIGHT_ACTION_COST = -0.001          # Reduced from -1.0 for better balance
